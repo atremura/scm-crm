@@ -1,0 +1,201 @@
+// AWG CRM - Schema do banco de dados
+// Fase 1: BID + Clients + Users + System Settings
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USERS & PERMISSIONS
+// ============================================================
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  roleId       String   @map("role_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  role              Role                    @relation(fields: [roleId], references: [id])
+  modulePermissions UserModulePermission[]
+  assignedBids      Bid[]                   @relation("BidAssignedTo")
+  statusChanges     BidStatusHistory[]
+
+  @@map("users")
+}
+
+model Module {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userPermissions UserModulePermission[]
+
+  @@map("modules")
+}
+
+model UserModulePermission {
+  id        String  @id @default(uuid())
+  userId    String  @map("user_id")
+  moduleId  String  @map("module_id")
+  canView   Boolean @default(false) @map("can_view")
+  canCreate Boolean @default(false) @map("can_create")
+  canEdit   Boolean @default(false) @map("can_edit")
+  canDelete Boolean @default(false) @map("can_delete")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@map("user_module_permissions")
+}
+
+// ============================================================
+// CLIENTS
+// ============================================================
+
+model Client {
+  id          String   @id @default(uuid())
+  companyName String   @map("company_name")
+  type        String?
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?  @map("zip_code")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  contacts ClientContact[]
+  bids     Bid[]
+
+  @@map("clients")
+}
+
+model ClientContact {
+  id        String  @id @default(uuid())
+  clientId  String  @map("client_id")
+  name      String
+  email     String?
+  phone     String?
+  role      String?
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_contacts")
+}
+
+// ============================================================
+// BIDS
+// ============================================================
+
+model Bid {
+  id                 String    @id @default(uuid())
+  bidNumber          String    @unique @map("bid_number")
+  clientId           String    @map("client_id")
+  assignedTo         String?   @map("assigned_to")
+  projectName        String    @map("project_name")
+  projectAddress     String?   @map("project_address")
+  projectLatitude    Decimal?  @map("project_latitude")
+  projectLongitude   Decimal?  @map("project_longitude")
+  distanceMiles      Decimal?  @map("distance_miles")
+  workType           String?   @map("work_type")
+  receivedDate       DateTime? @map("received_date")
+  responseDeadline   DateTime? @map("response_deadline")
+  status             String    @default("new")
+  priority           String    @default("medium")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  client         Client              @relation(fields: [clientId], references: [id])
+  assignedUser   User?               @relation("BidAssignedTo", fields: [assignedTo], references: [id])
+  documents      BidDocument[]
+  statusHistory  BidStatusHistory[]
+  aiAnalysis     BidAiAnalysis[]
+
+  @@map("bids")
+}
+
+model BidDocument {
+  id           String   @id @default(uuid())
+  bidId        String   @map("bid_id")
+  fileName     String   @map("file_name")
+  fileUrl      String   @map("file_url")
+  fileType     String?  @map("file_type")
+  documentType String?  @map("document_type")
+  fileSizeKb   Int?     @map("file_size_kb")
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  bid Bid @relation(fields: [bidId], references: [id], onDelete: Cascade)
+
+  @@map("bid_documents")
+}
+
+model BidStatusHistory {
+  id         String   @id @default(uuid())
+  bidId      String   @map("bid_id")
+  changedBy  String   @map("changed_by")
+  fromStatus String?  @map("from_status")
+  toStatus   String   @map("to_status")
+  notes      String?
+  changedAt  DateTime @default(now()) @map("changed_at")
+
+  bid  Bid  @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [changedBy], references: [id])
+
+  @@map("bid_status_history")
+}
+
+model BidAiAnalysis {
+  id                      String   @id @default(uuid())
+  bidId                   String   @map("bid_id")
+  passesPrequalification  Boolean  @map("passes_prequalification")
+  distanceScore           Decimal? @map("distance_score")
+  workTypeScore           Decimal? @map("work_type_score")
+  overallScore            Decimal? @map("overall_score")
+  recommendation          String?
+  reasoning               String?
+  analyzedAt              DateTime @default(now()) @map("analyzed_at")
+
+  bid Bid @relation(fields: [bidId], references: [id], onDelete: Cascade)
+
+  @@map("bid_ai_analysis")
+}
+
+// ============================================================
+// SYSTEM SETTINGS
+// ============================================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
