@@ -41,3 +41,14 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# local uploads (bid documents) — S3 later
+/public/uploads/
+!/public/uploads/.gitkeep
+
+# design handoff reference bundles (not used at runtime)
+/AWG-CRM/
+/AWG-CRM_v2/
+
+# local Claude Code state
+/.claude/

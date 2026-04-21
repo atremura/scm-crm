@@ -112,24 +112,32 @@ model ClientContact {
 // BIDS
 // ============================================================
 
+// Valid status values: new, qualified, rejected, sent_to_takeoff, won, lost
+// Valid source values: manual, email_ai, portal_api
 model Bid {
-  id                 String    @id @default(uuid())
-  bidNumber          String    @unique @map("bid_number")
-  clientId           String    @map("client_id")
-  assignedTo         String?   @map("assigned_to")
-  projectName        String    @map("project_name")
-  projectAddress     String?   @map("project_address")
-  projectLatitude    Decimal?  @map("project_latitude")
-  projectLongitude   Decimal?  @map("project_longitude")
-  distanceMiles      Decimal?  @map("distance_miles")
-  workType           String?   @map("work_type")
-  receivedDate       DateTime? @map("received_date")
-  responseDeadline   DateTime? @map("response_deadline")
-  status             String    @default("new")
-  priority           String    @default("medium")
-  notes              String?
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  bidNumber             String    @unique @map("bid_number")
+  clientId              String    @map("client_id")
+  assignedTo            String?   @map("assigned_to")
+  projectName           String    @map("project_name")
+  projectAddress        String?   @map("project_address")
+  projectLatitude       Decimal?  @map("project_latitude")
+  projectLongitude      Decimal?  @map("project_longitude")
+  distanceMiles         Decimal?  @map("distance_miles")
+  workType              String?   @map("work_type")
+  receivedDate          DateTime? @map("received_date")
+  responseDeadline      DateTime? @map("response_deadline")
+  status                String    @default("new")
+  priority              String    @default("medium")
+  notes                 String?
+  bondRequired          Boolean   @default(false) @map("bond_required")
+  unionJob              Boolean   @default(false) @map("union_job")
+  prevailingWage        Boolean   @default(false) @map("prevailing_wage")
+  davisBacon            Boolean   @default(false) @map("davis_bacon")
+  insuranceRequirements String?   @map("insurance_requirements")
+  source                String    @default("manual")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   client         Client              @relation(fields: [clientId], references: [id])
   assignedUser   User?               @relation("BidAssignedTo", fields: [assignedTo], references: [id])
@@ -141,16 +149,21 @@ model Bid {
 }
 
 model BidDocument {
-  id           String   @id @default(uuid())
-  bidId        String   @map("bid_id")
-  fileName     String   @map("file_name")
-  fileUrl      String   @map("file_url")
-  fileType     String?  @map("file_type")
-  documentType String?  @map("document_type")
-  fileSizeKb   Int?     @map("file_size_kb")
-  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  id              String   @id @default(uuid())
+  bidId           String   @map("bid_id")
+  fileName        String   @map("file_name")
+  fileUrl         String   @map("file_url")
+  fileType        String?  @map("file_type")
+  documentType    String?  @map("document_type")
+  fileSizeKb      Int?     @map("file_size_kb")
+  version         Int      @default(1)
+  addendumNumber  Int?     @map("addendum_number")
+  replacedById    String?  @map("replaced_by_id")
+  uploadedAt      DateTime @default(now()) @map("uploaded_at")
 
-  bid Bid @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  bid        Bid            @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  replacedBy BidDocument?   @relation("DocumentVersions", fields: [replacedById], references: [id])
+  replaces   BidDocument[]  @relation("DocumentVersions")
 
   @@map("bid_documents")
 }

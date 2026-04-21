@@ -4,11 +4,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   JMO GROUP Carpentry CRM — Design Tokens
+   Exposes the JMO palette as Tailwind utilities
+   (e.g. bg-navy-800, text-blue-500, bg-ink-100, bg-surface).
+   ============================================================ */
 @theme inline {
+  /* Base shadcn semantic tokens (remapped to JMO palette in :root / .dark) */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -46,75 +52,169 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Brand Navy — primary palette */
+  --color-navy-50:  #F3F6F8;
+  --color-navy-100: #E4EAEF;
+  --color-navy-200: #C7D4DF;
+  --color-navy-300: #97B0C3;
+  --color-navy-400: #5E86A1;
+  --color-navy-500: #2B6889;
+  --color-navy-600: #094E6C;
+  --color-navy-700: #003A54;
+  --color-navy-800: #00283C;
+  --color-navy-900: #001620;
+
+  /* Steel Blue — accent palette */
+  --color-blue-100: #E4ECF2;
+  --color-blue-200: #C0CFDC;
+  --color-blue-300: #8BA5BD;
+  --color-blue-400: #5E7E9C;
+  --color-blue-500: #3A5A7A;
+  --color-blue-600: #2F5E7F;
+  --color-blue-700: #1E4A68;
+
+  /* Cool neutrals */
+  --color-ink-50:  #F8FAFC;
+  --color-ink-100: #F1F5F9;
+  --color-ink-200: #E2E8F0;
+  --color-ink-300: #CBD5E1;
+  --color-ink-400: #94A3B8;
+  --color-ink-500: #64748B;
+  --color-ink-600: #475569;
+  --color-ink-700: #334155;
+  --color-ink-800: #1E293B;
+  --color-ink-900: #0F172A;
+
+  /* Semantic */
+  --color-success-100: #DCF5E7;
+  --color-success-500: #18B56A;
+  --color-success-600: #0F9D58;
+  --color-warn-100:    #FDEFD1;
+  --color-warn-500:    #E08A00;
+  --color-warn-600:    #C77700;
+  --color-danger-100:  #FBE0E0;
+  --color-danger-500:  #E14545;
+  --color-danger-600:  #CE2F2F;
+  --color-violet-100:  #ECE7FF;
+  --color-violet-500:  #7C5CFF;
+
+  /* Surfaces — exposed as bg-app / bg-surface / bg-sunken / bg-sidebar */
+  --color-app:     var(--bg-app);
+  --color-surface: var(--bg-surface);
+  --color-sunken:  var(--bg-sunken);
+  --color-sidebar-bg: var(--bg-sidebar);
+
+  /* Foreground tones */
+  --color-fg-default: var(--fg-default);
+  --color-fg-muted:   var(--fg-muted);
+  --color-fg-subtle:  var(--fg-subtle);
+  --color-border-strong: var(--border-strong-value);
 }
 
+/* ============================================================
+   Light mode (default) — shadcn semantic vars mapped to JMO
+   ============================================================ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* JMO surface tokens */
+  --bg-app:         #F5F7FB;
+  --bg-surface:     #FFFFFF;
+  --bg-sunken:      #EEF1F7;
+  --bg-sidebar:     #00283C;
+  --fg-default:     #0F172A;
+  --fg-muted:       #475569;
+  --fg-subtle:      #94A3B8;
+  --border-strong-value: #CBD5E1;
+
+  /* shadcn semantic mapping (hex — matches tokens above) */
+  --background: #F5F7FB;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #00283C;            /* navy-800 */
+  --primary-foreground: #FFFFFF;
+  --secondary: #EEF1F7;          /* bg-sunken */
+  --secondary-foreground: #0F172A;
+  --muted: #EEF1F7;
+  --muted-foreground: #475569;
+  --accent: #3A5A7A;             /* blue-500 */
+  --accent-foreground: #FFFFFF;
+  --destructive: #E14545;
+  --border: #E2E8F0;
+  --input: #E2E8F0;
+  --ring: #3A5A7A;
+  --chart-1: #00283C;
+  --chart-2: #3A5A7A;
+  --chart-3: #5E86A1;
+  --chart-4: #97B0C3;
+  --chart-5: #C7D4DF;
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: #00283C;
+  --sidebar-foreground: #C6D0E8;
+  --sidebar-primary: #3A5A7A;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(255,255,255,0.06);
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(255,255,255,0.06);
+  --sidebar-ring: #3A5A7A;
+
+  /* Fonts — Inter is loaded via next/font and exposed as --font-sans */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ring-focus: 0 0 0 3px rgba(58, 90, 122, 0.28);
 }
 
+/* ============================================================
+   Dark mode
+   ============================================================ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --bg-app:         #04151E;
+  --bg-surface:     #0A2434;
+  --bg-sunken:      #071D2A;
+  --bg-sidebar:     #001620;
+  --fg-default:     #E7EEF4;
+  --fg-muted:       #94A9BA;
+  --fg-subtle:      #5A7189;
+  --border-strong-value: #1F4660;
+
+  --background: #04151E;
+  --foreground: #E7EEF4;
+  --card: #0A2434;
+  --card-foreground: #E7EEF4;
+  --popover: #0A2434;
+  --popover-foreground: #E7EEF4;
+  --primary: #3A5A7A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #071D2A;
+  --secondary-foreground: #E7EEF4;
+  --muted: #071D2A;
+  --muted-foreground: #94A9BA;
+  --accent: #5E7E9C;
+  --accent-foreground: #FFFFFF;
+  --destructive: #E14545;
+  --border: #143349;
+  --input: #143349;
+  --ring: #3A5A7A;
+  --chart-1: #5E7E9C;
+  --chart-2: #8BA5BD;
+  --chart-3: #97B0C3;
+  --chart-4: #C0CFDC;
+  --chart-5: #E4ECF2;
+
+  --sidebar: #001620;
+  --sidebar-foreground: #C6D0E8;
+  --sidebar-primary: #3A5A7A;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(255,255,255,0.06);
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(255,255,255,0.06);
+  --sidebar-ring: #3A5A7A;
 }
 
 @layer base {
@@ -123,8 +223,41 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02","cv03","cv04","cv11","ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   html {
     @apply font-sans;
   }
+  ::selection {
+    background: #C0CFDC;
+    color: #00283C;
+  }
+}
+
+/* ============================================================
+   Project Map animations
+   ============================================================ */
+@keyframes pm-dash-flow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+@keyframes pm-ping {
+  0% {
+    r: 4;
+    opacity: 1;
+  }
+  100% {
+    r: 16;
+    opacity: 0;
+  }
+}
+.pm-route-line {
+  animation: pm-dash-flow 2s linear infinite;
+}
+.pm-ping {
+  animation: pm-ping 2s ease-out infinite;
+  transform-origin: center;
 }
