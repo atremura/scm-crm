@@ -15,7 +15,11 @@ export default async function AuthenticatedLayout({
     <div className="flex h-screen overflow-hidden bg-app">
       <Sidebar userName={user?.name ?? 'User'} userRole={user?.role ?? ''} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar />
+        <Topbar
+          userName={user?.name ?? 'User'}
+          userEmail={user?.email ?? ''}
+          userRole={user?.role ?? ''}
+        />
         <main className="flex-1 overflow-y-auto bg-app">{children}</main>
       </div>
       <Toaster />

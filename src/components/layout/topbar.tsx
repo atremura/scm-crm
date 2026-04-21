@@ -1,4 +1,18 @@
-import { auth, signOut } from '@/auth';
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { signOut } from 'next-auth/react';
+import {
+  Search,
+  Bell,
+  Sparkles,
+  Menu,
+  LogOut,
+  User as UserIcon,
+  HelpCircle,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,73 +21,182 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { LogOut, User } from 'lucide-react';
 
-function getInitials(name: string): string {
-  return name
+type TopbarProps = {
+  userName: string;
+  userEmail: string;
+  userRole: string;
+};
+
+const SEGMENT_LABELS: Record<string, string> = {
+  dashboard: 'Home',
+  bids: 'BIDs',
+  new: 'New',
+  takeoff: 'Takeoff',
+  estimates: 'Estimate',
+  contracts: 'Contract',
+  execution: 'Execution',
+  financial: 'Financial',
+  clients: 'Clients',
+  users: 'Users & Roles',
+  settings: 'Settings',
+};
+
+function UUID_RE(segment: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment);
+}
+
+function buildCrumbs(pathname: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  const crumbs: { label: string; href: string; mono?: boolean }[] = [];
+  let acc = '';
+  parts.forEach((p, i) => {
+    acc += `/${p}`;
+    const label = UUID_RE(p)
+      ? p.slice(0, 8).toUpperCase()
+      : SEGMENT_LABELS[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
+    crumbs.push({ label, href: acc, mono: UUID_RE(p) });
+  });
+  if (crumbs.length === 0) {
+    crumbs.push({ label: 'Home', href: '/dashboard' });
+  }
+  return crumbs;
+}
+
+export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
+  const pathname = usePathname();
+  const crumbs = buildCrumbs(pathname);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const initials = (userName || 'U')
     .split(' ')
     .map((n) => n[0])
+    .filter(Boolean)
     .slice(0, 2)
     .join('')
     .toUpperCase();
-}
-
-export async function Topbar({ title }: { title?: string }) {
-  const session = await auth();
-
-  if (!session?.user) return null;
-
-  const user = session.user as any;
-  const initials = getInitials(user.name || 'U');
 
   return (
-    <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-6">
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm text-slate-600">{title || 'Dashboard'}</h2>
+    <header className="sticky top-0 z-10 flex min-h-[64px] items-center gap-4 border-b border-border bg-surface/95 px-6 backdrop-blur md:px-8">
+      {/* Mobile menu button */}
+      <button
+        type="button"
+        className="grid h-9 w-9 place-items-center rounded-md text-fg-muted transition-colors hover:bg-sunken hover:text-fg-default md:hidden"
+        aria-label="Menu"
+      >
+        <Menu className="h-[18px] w-[18px]" />
+      </button>
+
+      {/* Breadcrumbs */}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px]">
+        {crumbs.map((c, i) => {
+          const isLast = i === crumbs.length - 1;
+          return (
+            <span key={c.href} className="flex items-center gap-2">
+              {i > 0 && <span className="text-fg-subtle">/</span>}
+              {isLast ? (
+                <span
+                  className={`font-semibold text-fg-default ${c.mono ? 'font-mono text-[12px]' : ''}`}
+                >
+                  {c.label}
+                </span>
+              ) : (
+                <Link
+                  href={c.href}
+                  className={`text-fg-muted transition-colors hover:text-fg-default ${
+                    c.mono ? 'font-mono text-[12px]' : ''
+                  }`}
+                >
+                  {c.label}
+                </Link>
+              )}
+            </span>
+          );
+        })}
+      </nav>
+
+      {/* Search */}
+      <div className="ml-4 hidden max-w-[420px] flex-1 md:block">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-fg-subtle" />
+          <input
+            type="search"
+            placeholder="Search bids, clients, projects…"
+            onFocus={() => setSearchOpen(true)}
+            onBlur={() => setSearchOpen(false)}
+            className="h-[38px] w-full rounded-lg border border-border bg-sunken pl-9 pr-12 text-[13.5px] text-fg-default placeholder:text-fg-subtle transition-colors focus:border-blue-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          />
+          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-fg-subtle">
+            ⌘K
+          </kbd>
+        </div>
       </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-3 hover:bg-slate-50 rounded-md px-2 py-1.5 transition-colors">
-          <div className="text-right">
-            <p className="text-sm font-medium text-slate-900 leading-tight">{user.name}</p>
-            <p className="text-xs text-slate-500 leading-tight">{user.role}</p>
-          </div>
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        </DropdownMenuTrigger>
+      {/* Right actions */}
+      <div className="ml-auto flex items-center gap-2">
+        {/* Ask AI */}
+        <button
+          type="button"
+          title="Ask JMO Copilot (coming soon)"
+          className="inline-flex h-[38px] items-center gap-1.5 rounded-lg bg-blue-500/15 px-3 text-[12.5px] font-semibold text-blue-500 transition-colors hover:bg-blue-500/25"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Ask AI</span>
+        </button>
 
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium">{user.name}</span>
-              <span className="text-xs text-slate-500 font-normal">{user.email}</span>
-            </div>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled>
-            <User className="mr-2 h-4 w-4" />
-            <span>My Profile</span>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <form
-            action={async () => {
-              'use server';
-              await signOut({ redirectTo: '/login' });
-            }}
-          >
-            <button type="submit" className="w-full">
-              <DropdownMenuItem className="text-red-600 focus:text-red-600 cursor-pointer">
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Sign out</span>
-              </DropdownMenuItem>
+        {/* Notifications */}
+        <button
+          type="button"
+          title="Notifications"
+          className="relative grid h-[38px] w-[38px] place-items-center rounded-lg border border-border bg-surface text-fg-muted transition-colors hover:border-border-strong hover:bg-sunken hover:text-fg-default"
+        >
+          <Bell className="h-[17px] w-[17px]" />
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-surface" />
+        </button>
+
+        {/* User dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-2.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-sunken"
+            >
+              <div className="hidden text-right leading-tight sm:block">
+                <p className="text-[12.5px] font-semibold text-fg-default">{userName}</p>
+                <p className="text-[11px] text-fg-muted">{userRole}</p>
+              </div>
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-navy-800 text-[11px] font-bold text-white">
+                {initials}
+              </div>
             </button>
-          </form>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold">{userName}</span>
+                <span className="text-xs font-normal text-fg-muted">{userEmail}</span>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled>
+              <UserIcon className="mr-2 h-4 w-4" />
+              My Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <HelpCircle className="mr-2 h-4 w-4" />
+              Help & docs
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="text-danger-500 focus:text-danger-500"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </header>
   );
 }
