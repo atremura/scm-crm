@@ -61,10 +61,11 @@ export function ClientCombobox({
   }, [search, open]);
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div ref={wrapRef} className="relative" data-error={error ? 'true' : undefined}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-invalid={error ? true : undefined}
         className={`flex w-full items-center gap-2 rounded-md border bg-surface px-3 py-2 text-left text-[13.5px] transition-colors ${
           error ? 'border-danger-500' : 'border-border hover:border-border-strong'
         } ${open ? 'border-blue-500 ring-2 ring-blue-500/20' : ''}`}

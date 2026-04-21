@@ -103,25 +103,51 @@ export default function NewBidPage() {
 
   const deadlineDays = useMemo(() => daysUntil(responseDeadline), [responseDeadline]);
 
-  function validate(): boolean {
+  function validate(): { ok: boolean; missing: string[] } {
     const e: Record<string, string> = {};
-    if (!client) e.client = 'Select a client';
-    if (projectName.trim().length < 3) e.projectName = 'At least 3 characters';
-    if (!responseDeadline) e.responseDeadline = 'Response deadline is required';
-    else {
+    const missing: string[] = [];
+    if (!client) {
+      e.client = 'Select a client';
+      missing.push('Client');
+    }
+    if (projectName.trim().length < 3) {
+      e.projectName = 'At least 3 characters';
+      missing.push('Project name');
+    }
+    if (!responseDeadline) {
+      e.responseDeadline = 'Response deadline is required';
+      missing.push('Response deadline');
+    } else {
       const d = new Date(responseDeadline + 'T23:59:59');
-      if (d.getTime() <= Date.now()) e.responseDeadline = 'Deadline must be in the future';
+      if (d.getTime() <= Date.now()) {
+        e.responseDeadline = 'Deadline must be in the future';
+        missing.push('Response deadline (must be future)');
+      }
     }
     if (workType === 'Other' && customWorkType.trim().length < 2) {
       e.customWorkType = 'Describe the work type';
+      missing.push('Custom work type');
     }
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return { ok: Object.keys(e).length === 0, missing };
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!validate()) return;
+    const v = validate();
+    if (!v.ok) {
+      toast.error(`Missing or invalid: ${v.missing.join(', ')}`);
+      // Scroll to first error
+      requestAnimationFrame(() => {
+        const firstErrorEl = document.querySelector('[aria-invalid="true"], [data-error="true"]');
+        if (firstErrorEl) {
+          firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -497,21 +523,48 @@ export default function NewBidPage() {
               </div>
             </div>
 
-            <div className="mt-5 space-y-2 border-t border-border pt-4">
-              <Button type="submit" size="lg" className="w-full" disabled={submitting}>
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Creating bid…
-                  </>
-                ) : (
-                  'Create Bid'
-                )}
-              </Button>
-              <Button type="button" variant="ghost" className="w-full" asChild>
-                <Link href="/bids">Cancel</Link>
-              </Button>
-            </div>
+            {(() => {
+              const requiredMissing: string[] = [];
+              if (!client) requiredMissing.push('client');
+              if (projectName.trim().length < 3) requiredMissing.push('project name');
+              if (!responseDeadline) requiredMissing.push('deadline');
+              return (
+                <div className="mt-5 space-y-2 border-t border-border pt-4">
+                  {requiredMissing.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-md border border-warn-500/30 bg-warn-500/10 px-3 py-2 text-[11.5px] text-warn-500">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      <div>
+                        Still missing:{' '}
+                        <span className="font-semibold">{requiredMissing.join(', ')}</span>
+                      </div>
+                    </div>
+                  )}
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={submitting}
+                    title={
+                      requiredMissing.length > 0
+                        ? `Fill: ${requiredMissing.join(', ')}`
+                        : undefined
+                    }
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Creating bid…
+                      </>
+                    ) : (
+                      'Create Bid'
+                    )}
+                  </Button>
+                  <Button type="button" variant="ghost" className="w-full" asChild>
+                    <Link href="/bids">Cancel</Link>
+                  </Button>
+                </div>
+              );
+            })()}
 
             <p className="mt-3 text-[11px] leading-relaxed text-fg-subtle">
               A sequential <span className="font-mono">BID-YYYY-NNNN</span> number is assigned
