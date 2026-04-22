@@ -27,11 +27,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const search = searchParams.get('search') || '';
   const includeInactive = searchParams.get('includeInactive') === 'true';
+  const status = searchParams.get('status'); // 'active' | 'inactive' | 'all'
+  const type = searchParams.get('type');
 
   const where: any = {};
-  if (!includeInactive) where.isActive = true;
+  if (status === 'inactive') where.isActive = false;
+  else if (status === 'all') {
+    // no filter
+  } else if (!includeInactive) where.isActive = true;
+  if (type) where.type = type;
   if (search) {
-    where.companyName = { contains: search, mode: 'insensitive' };
+    where.OR = [
+      { companyName: { contains: search, mode: 'insensitive' } },
+      { city: { contains: search, mode: 'insensitive' } },
+      { contacts: { some: { name: { contains: search, mode: 'insensitive' } } } },
+    ];
   }
 
   try {
