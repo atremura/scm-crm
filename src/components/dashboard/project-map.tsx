@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { MAP_STATUS, type MapNode, type MapNodeStatus } from '@/lib/dashboard-mock';
-import { distanceAndBearingFromBoston } from '@/lib/geo';
+import { distanceAndBearingFromBoston, projectFromBoston } from '@/lib/geo';
+import { NE_STATES } from '@/lib/ne-states';
 
 const HUB = { x: 760, y: 310 };
 
@@ -301,41 +302,42 @@ export function ProjectMap() {
             <text x="746" y="712">71°W</text>
           </g>
 
-          {/* Massachusetts silhouette */}
-          <path
-            d="M 50,280 L 120,255 L 180,265 L 240,260 L 310,270 L 380,265 L 450,270
-               L 520,275 L 580,280 L 640,275 L 700,270 L 760,275 L 820,285
-               L 870,305 L 900,340 L 910,385 L 895,430 L 870,465 L 830,480
-               L 790,470 L 770,455 L 760,470 L 780,495 L 800,520
-               L 810,545 L 790,560 L 745,555 L 700,540
-               L 650,530 L 620,540 L 600,555 L 590,575 L 575,560
-               L 550,540 L 510,530 L 480,520 L 450,510 L 410,495 L 370,485
-               L 330,475 L 290,460 L 260,445 L 230,430
-               L 200,415 L 170,395 L 140,375 L 110,355 L 85,335 L 65,310 Z"
-            fill="rgba(58, 90, 122, 0.09)"
-            stroke="rgba(94, 134, 161, 0.28)"
-            strokeWidth="1.2"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M 790,495 Q 830,510 870,515 Q 900,510 920,490 Q 915,470 895,465
-               Q 870,475 845,490 Q 820,500 800,495 Z"
-            fill="rgba(58, 90, 122, 0.09)"
-            stroke="rgba(94, 134, 161, 0.28)"
-            strokeWidth="1.2"
-          />
-
-          <text
-            x="80"
-            y="320"
-            fontFamily="var(--font-sans)"
-            fontSize="24"
-            fontWeight="800"
-            fill="rgba(94, 134, 161, 0.13)"
-            letterSpacing="0.15em"
-          >
-            MASSACHUSETTS
-          </text>
+          {/* New England state borders — projected azimuthally from Boston
+              so they line up with bid markers (which use bearing+distance). */}
+          {NE_STATES.map((state) => {
+            const pts = state.ring.map(([lat, lng]) =>
+              projectFromBoston(lat, lng, HUB)
+            );
+            const d =
+              pts
+                .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+                .join(' ') + ' Z';
+            const label = projectFromBoston(state.labelAt[0], state.labelAt[1], HUB);
+            return (
+              <g key={state.code}>
+                <path
+                  d={d}
+                  fill="rgba(58, 90, 122, 0.06)"
+                  stroke="rgba(94, 134, 161, 0.45)"
+                  strokeWidth="1"
+                  strokeDasharray="6 4"
+                  strokeLinejoin="round"
+                />
+                <text
+                  x={label.x}
+                  y={label.y}
+                  textAnchor="middle"
+                  fontFamily="var(--font-sans)"
+                  fontSize={state.code === 'RI' ? 11 : 13}
+                  fontWeight="700"
+                  fill="rgba(94, 134, 161, 0.35)"
+                  letterSpacing="0.12em"
+                >
+                  {state.name}
+                </text>
+              </g>
+            );
+          })}
 
           {/* Hub */}
           <circle cx={HUB.x} cy={HUB.y} r="140" fill="url(#pm-hubGlow)" />

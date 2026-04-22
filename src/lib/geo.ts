@@ -56,3 +56,24 @@ export function distanceAndBearingFromBoston(lat: number, lng: number): {
     bearing: bearingRad(BOSTON.lat, BOSTON.lng, lat, lng),
   };
 }
+
+/**
+ * Project a real lat/lng to SVG coordinates using an azimuthal projection
+ * centered on Boston. Works at the same scale as the bid markers
+ * (~1.8 px / mile), so state borders line up with bid positions.
+ *
+ * - Bearing 0 (north) → -y (up).
+ * - Bearing π/2 (east) → +x (right).
+ */
+export function projectFromBoston(
+  lat: number,
+  lng: number,
+  hub: { x: number; y: number },
+  pxPerMile = 1.8
+): { x: number; y: number } {
+  const { miles, bearing } = distanceAndBearingFromBoston(lat, lng);
+  return {
+    x: hub.x + miles * pxPerMile * Math.sin(bearing),
+    y: hub.y - miles * pxPerMile * Math.cos(bearing),
+  };
+}
