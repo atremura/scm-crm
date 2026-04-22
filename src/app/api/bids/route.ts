@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import { generateBidNumber } from '@/lib/bid-server';
 import { VALID_PRIORITIES, VALID_SOURCES } from '@/lib/bid-utils';
+import { geocodeAddress } from '@/lib/geocoding';
+import { distanceAndBearingFromBoston } from '@/lib/geo';
 
 const createBidSchema = z.object({
   clientId: z.string().uuid(),
@@ -154,6 +156,28 @@ export async function POST(req: NextRequest) {
 
       return created;
     });
+
+    // Best-effort geocoding (don't block the response on a slow Nominatim call,
+    // but await briefly so the client gets the location back when possible).
+    if (bid.projectAddress) {
+      try {
+        const result = await geocodeAddress(bid.projectAddress);
+        if (result) {
+          const { miles } = distanceAndBearingFromBoston(result.lat, result.lng);
+          const updated = await prisma.bid.update({
+            where: { id: bid.id },
+            data: {
+              projectLatitude: result.lat,
+              projectLongitude: result.lng,
+              distanceMiles: Math.round(miles * 10) / 10,
+            },
+          });
+          return NextResponse.json(updated, { status: 201 });
+        }
+      } catch (e) {
+        console.warn('[bids.POST] geocode failed', e);
+      }
+    }
 
     return NextResponse.json(bid, { status: 201 });
   } catch (err) {

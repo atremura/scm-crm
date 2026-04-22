@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { MAP_STATUS, type MapNode, type MapNodeStatus } from '@/lib/dashboard-mock';
+import { distanceAndBearingFromBoston } from '@/lib/geo';
 
 const HUB = { x: 760, y: 310 };
 
@@ -11,10 +12,13 @@ type ApiBid = {
   id: string;
   bidNumber: string;
   projectName: string;
+  projectAddress: string | null;
   status: string;
   priority: string;
   source: string;
   distanceMiles: string | number | null;
+  projectLatitude: string | number | null;
+  projectLongitude: string | number | null;
   responseDeadline: string | null;
   createdAt: string;
   client: { id: string; companyName: string };
@@ -50,23 +54,55 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 /** Convert a bid into an SVG node positioned around the Boston hub.
- *  ~1.8px per mile; if distance is unknown, place close to hub.
- *  Angle is derived from a hash of the bid id so positions are stable. */
+ *  When lat/lng are known, the angle is the real great-circle bearing
+ *  from Boston (so a NH bid points NW, a CT bid points SW, etc.) and
+ *  the radius scales with the haversine distance.
+ *  When lat/lng are unknown but distance is, we use a stable hash for
+ *  the angle. With nothing, the node sits next to the hub. */
 function bidToNode(bid: ApiBid): MapNode {
-  const distRaw =
-    bid.distanceMiles === null || bid.distanceMiles === undefined
-      ? null
-      : Number(bid.distanceMiles);
-  const distance = distRaw && Number.isFinite(distRaw) ? distRaw : null;
+  const lat =
+    bid.projectLatitude !== null && bid.projectLatitude !== undefined
+      ? Number(bid.projectLatitude)
+      : null;
+  const lng =
+    bid.projectLongitude !== null && bid.projectLongitude !== undefined
+      ? Number(bid.projectLongitude)
+      : null;
+
+  let bearing: number | null = null;
+  let distance: number | null = null;
+
+  if (lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng)) {
+    const calc = distanceAndBearingFromBoston(lat, lng);
+    bearing = calc.bearing;
+    distance = calc.miles;
+  } else {
+    const distRaw =
+      bid.distanceMiles === null || bid.distanceMiles === undefined
+        ? null
+        : Number(bid.distanceMiles);
+    distance = distRaw && Number.isFinite(distRaw) ? distRaw : null;
+    bearing = hash01(bid.id) * Math.PI * 2 - Math.PI; // map [0,2π) into [-π, π)
+  }
+
   const radius = distance !== null ? Math.min(distance * 1.8 + 14, 220) : 24;
 
-  const angle = hash01(bid.id) * Math.PI * 2;
-  const x = clamp(HUB.x + radius * Math.cos(angle), SVG_BOUNDS.minX, SVG_BOUNDS.maxX);
-  const y = clamp(HUB.y + radius * Math.sin(angle), SVG_BOUNDS.minY, SVG_BOUNDS.maxY);
+  // SVG y-axis grows downward; convert compass bearing accordingly.
+  // bearing 0 = North → -y (up). 90° = East → +x.
+  const x = clamp(
+    HUB.x + radius * Math.sin(bearing!),
+    SVG_BOUNDS.minX,
+    SVG_BOUNDS.maxX
+  );
+  const y = clamp(
+    HUB.y - radius * Math.cos(bearing!),
+    SVG_BOUNDS.minY,
+    SVG_BOUNDS.maxY
+  );
 
   const status = bidToMapStatus(bid);
-  const distLabel = distance !== null ? `${distance}mi` : '—';
-  // Truncate names so they fit the SVG without overlapping too much
+  const distLabel =
+    distance !== null ? `${Math.round(distance * 10) / 10}mi` : '—';
   const shortName =
     bid.projectName.length > 26 ? bid.projectName.slice(0, 24) + '…' : bid.projectName;
 
@@ -79,27 +115,57 @@ function bidToNode(bid: ApiBid): MapNode {
     dist: distLabel,
     val: status === 'done' ? 'completed' : '—',
     anchor: x > HUB.x ? 'start' : 'end',
-    below: y < HUB.y - 10 ? false : y > HUB.y + 50,
+    below: y > HUB.y + 30,
   };
 }
 
 export function ProjectMap() {
   const [bids, setBids] = useState<ApiBid[]>([]);
   const [loading, setLoading] = useState(true);
+  const [geocoding, setGeocoding] = useState(false);
+
+  async function loadBids(): Promise<ApiBid[]> {
+    const res = await fetch('/api/bids');
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
 
   useEffect(() => {
-    let active = true;
-    fetch('/api/bids')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => {
-        if (active && Array.isArray(d)) setBids(d);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    let cancelled = false;
+
+    (async () => {
+      const initial = await loadBids();
+      if (cancelled) return;
+      setBids(initial);
+      setLoading(false);
+
+      // Backfill geocoding for bids that have an address but no lat/lng yet.
+      // Throttle to ~1 req/sec (Nominatim TOS).
+      const needsGeocode = initial.filter(
+        (b) =>
+          b.projectAddress &&
+          (b.projectLatitude === null || b.projectLatitude === undefined)
+      );
+      if (needsGeocode.length === 0) return;
+      setGeocoding(true);
+      try {
+        for (const b of needsGeocode) {
+          if (cancelled) return;
+          await fetch(`/api/bids/${b.id}/geocode`, { method: 'POST' }).catch(() => {});
+          await new Promise((r) => setTimeout(r, 1100));
+        }
+        if (!cancelled) {
+          const refreshed = await loadBids();
+          if (!cancelled) setBids(refreshed);
+        }
+      } finally {
+        if (!cancelled) setGeocoding(false);
+      }
+    })();
+
     return () => {
-      active = false;
+      cancelled = true;
     };
   }, []);
 
@@ -456,6 +522,13 @@ export function ProjectMap() {
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-white/50">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Loading bids…
+          </div>
+        )}
+
+        {geocoding && (
+          <div className="absolute right-4 top-20 z-10 flex items-center gap-2 rounded-md border border-white/10 bg-[#04151E]/90 px-3 py-1.5 text-[11px] text-white/70 backdrop-blur">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Geocoding addresses…
           </div>
         )}
 
