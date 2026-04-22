@@ -18,12 +18,21 @@ import {
   AlertCircle,
   CalendarClock,
   CheckCircle2,
+  Loader2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AiScoreBar } from '@/components/bids/ai-score-bar';
 import { ExtractEmailDialog } from '@/components/bids/extract-email-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { getUrgencyLevel } from '@/lib/bid-utils';
 
 type ApiBid = {
@@ -42,6 +51,24 @@ type ApiBid = {
   client: { id: string; companyName: string; type: string | null };
   assignedUser: { id: string; name: string; email: string } | null;
   _count: { documents: number };
+};
+
+type PendingExtraction = {
+  id: string;
+  emailSubject: string | null;
+  fromAddress: string | null;
+  confidence: number | string | null;
+  summary: string | null;
+  flags: string[] | null;
+  extractedData: {
+    companyName: string | null;
+    projectName: string | null;
+    projectAddress: string | null;
+    workType: string | null;
+    responseDeadline: string | null;
+  };
+  costCents: number | string | null;
+  createdAt: string;
 };
 
 type TabKey = 'all' | 'new' | 'reviewing' | 'qualified' | 'sent_to_takeoff' | 'rejected';
@@ -108,6 +135,52 @@ export default function BidsPage() {
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('list');
   const [extractOpen, setExtractOpen] = useState(false);
+  const [reviewExtractionId, setReviewExtractionId] = useState<string | null>(null);
+
+  // Gmail integration state
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [pending, setPending] = useState<PendingExtraction[]>([]);
+  const [pendingOpen, setPendingOpen] = useState(false);
+
+  async function loadGmailStatus() {
+    const res = await fetch('/api/auth/gmail/status');
+    if (res.ok) {
+      const data = await res.json();
+      setGmailConnected(Boolean(data.connected));
+    }
+  }
+  async function loadPending() {
+    const res = await fetch('/api/bids/extractions?status=pending');
+    if (res.ok) setPending(await res.json());
+  }
+  useEffect(() => {
+    loadGmailStatus();
+    loadPending();
+  }, []);
+
+  async function handleSyncGmail() {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/gmail/sync?limit=10', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Sync failed');
+      const { processed, skipped, created } = data;
+      if (processed === 0) {
+        toast.success('Inbox checked — no matching emails in the last 30 days.');
+      } else {
+        toast.success(
+          `${created} new extracted, ${skipped} already seen (${processed} matched)`
+        );
+        await loadPending();
+        if (created > 0) setPendingOpen(true);
+      }
+    } catch (err: any) {
+      toast.error(err.message ?? 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function loadBids(status: TabKey, q: string) {
     setLoading(true);
@@ -194,10 +267,34 @@ export default function BidsPage() {
             <Sparkles className="h-3.5 w-3.5" />
             Capture from email
           </Button>
-          <Button variant="outline" size="sm" disabled title="Gmail OAuth coming in Phase 1.5B-2">
-            <Mail className="h-3.5 w-3.5" />
-            Sync Gmail
-          </Button>
+          {gmailConnected ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncGmail}
+              disabled={syncing}
+              title="Pulls bid emails from the last 30 days"
+            >
+              {syncing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Mail className="h-3.5 w-3.5" />
+              )}
+              {syncing ? 'Syncing…' : 'Sync Gmail'}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              title="Connect Gmail in Settings to enable sync"
+            >
+              <Link href="/settings">
+                <Mail className="h-3.5 w-3.5" />
+                Connect Gmail
+              </Link>
+            </Button>
+          )}
           <Button size="sm" asChild>
             <Link href="/bids/new">
               <Plus className="h-3.5 w-3.5" />
@@ -206,6 +303,24 @@ export default function BidsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Pending Gmail extractions banner */}
+      {pending.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setPendingOpen(true)}
+          className="flex w-full items-center gap-3 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-left transition-colors hover:bg-violet-500/15"
+        >
+          <Sparkles className="h-4 w-4 shrink-0 text-violet-500" />
+          <div className="flex-1 text-[13px] text-fg-default">
+            <strong className="text-violet-500">
+              {pending.length} email{pending.length === 1 ? '' : 's'}
+            </strong>{' '}
+            captured from Gmail and waiting for review.
+          </div>
+          <span className="text-[11.5px] text-violet-500">Review →</span>
+        </button>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -321,7 +436,110 @@ export default function BidsPage() {
         <BidsBoard bids={bids} loading={loading} />
       )}
 
-      <ExtractEmailDialog open={extractOpen} onOpenChange={setExtractOpen} />
+      <ExtractEmailDialog
+        open={extractOpen || !!reviewExtractionId}
+        loadExtractionId={reviewExtractionId}
+        onOpenChange={(o) => {
+          if (!o) {
+            setExtractOpen(false);
+            setReviewExtractionId(null);
+            // Refresh after a review (extraction might have been accepted/rejected)
+            loadPending();
+            loadBids(tab, search);
+          } else {
+            setExtractOpen(true);
+          }
+        }}
+      />
+
+      {/* Pending Gmail extractions dialog */}
+      <Dialog open={pendingOpen} onOpenChange={setPendingOpen}>
+        <DialogContent className="sm:max-w-[640px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-blue-500" />
+              Pending email extractions ({pending.length})
+            </DialogTitle>
+            <DialogDescription>
+              Bids the AI captured from your Gmail. Review each one to create the bid.
+            </DialogDescription>
+          </DialogHeader>
+
+          {pending.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border bg-sunken/40 px-4 py-8 text-center text-[12.5px] text-fg-subtle">
+              No pending extractions. Click <strong>Sync Gmail</strong> to pull new emails.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {pending.map((p) => {
+                const conf = Math.round(Number(p.confidence ?? 0));
+                const confColor =
+                  conf >= 80
+                    ? 'bg-success-500/15 text-success-500'
+                    : conf >= 50
+                      ? 'bg-warn-500/15 text-warn-500'
+                      : 'bg-danger-500/15 text-danger-500';
+                const subject = (p.emailSubject ?? '').replace(/^\[gmail:[^\]]+\]\s*/, '');
+                return (
+                  <li
+                    key={p.id}
+                    className="rounded-lg border border-border bg-surface p-3 transition-colors hover:border-blue-500/50"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10.5px] font-bold ${confColor}`}
+                      >
+                        {conf}%
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-fg-default">
+                          {p.extractedData.projectName ||
+                            subject ||
+                            '(no project name)'}
+                        </div>
+                        <div className="mt-0.5 truncate text-[11.5px] text-fg-muted">
+                          {p.extractedData.companyName || p.fromAddress || 'Unknown sender'}
+                          {p.extractedData.responseDeadline &&
+                            ` · due ${p.extractedData.responseDeadline}`}
+                          {p.extractedData.workType && ` · ${p.extractedData.workType}`}
+                        </div>
+                        {p.summary && (
+                          <p className="mt-1 line-clamp-2 text-[11.5px] text-fg-muted">
+                            {p.summary}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setPendingOpen(false);
+                          setReviewExtractionId(p.id);
+                        }}
+                      >
+                        Review
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm('Reject this extraction?')) return;
+                          await fetch(`/api/bids/extractions/${p.id}`, {
+                            method: 'DELETE',
+                          });
+                          loadPending();
+                        }}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-fg-muted hover:bg-danger-500/10 hover:text-danger-500"
+                        title="Reject"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

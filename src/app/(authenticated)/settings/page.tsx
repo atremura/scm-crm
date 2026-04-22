@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Building2,
   MapPin,
@@ -11,6 +12,10 @@ import {
   Plus,
   X,
   Locate,
+  Mail,
+  CheckCircle2,
+  AlertCircle,
+  Unplug,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -280,6 +285,9 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Gmail */}
+      <GmailSection />
+
       {/* AI */}
       <Section
         icon={<Sparkles className="h-4 w-4" />}
@@ -413,5 +421,133 @@ function WorkTypeEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+type GmailStatus = {
+  connected: boolean;
+  email: string | null;
+  connectedAt: string | null;
+  lastSyncAt: string | null;
+};
+
+function GmailSection() {
+  const search = useSearchParams();
+  const [status, setStatus] = useState<GmailStatus | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // Surface the result of the OAuth callback (?gmail=success/error)
+  useEffect(() => {
+    const r = search.get('gmail');
+    if (r === 'success') {
+      const email = search.get('email');
+      toast.success(`Gmail connected${email ? ` as ${email}` : ''}`);
+    } else if (r === 'error') {
+      toast.error(`Gmail connection failed: ${search.get('reason') ?? 'unknown'}`);
+    }
+  }, [search]);
+
+  async function load() {
+    try {
+      const res = await fetch('/api/auth/gmail/status');
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function disconnect() {
+    if (!confirm('Disconnect Gmail? Future syncs will require reconnecting.')) return;
+    setDisconnecting(true);
+    try {
+      const res = await fetch('/api/auth/gmail/disconnect', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed');
+      toast.success('Gmail disconnected');
+      await load();
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  return (
+    <Section
+      icon={<Mail className="h-4 w-4" />}
+      title="Gmail integration"
+      description="Connect your Gmail so new bid emails can be captured automatically"
+    >
+      {!status ? (
+        <div className="flex items-center gap-2 text-[13px] text-fg-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        </div>
+      ) : status.connected ? (
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 rounded-md border border-success-500/30 bg-success-500/5 px-4 py-3">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-500" />
+            <div className="flex-1">
+              <div className="text-[13px] font-semibold text-fg-default">
+                Connected as <span className="text-success-500">{status.email}</span>
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-fg-muted">
+                Connected{' '}
+                {status.connectedAt
+                  ? new Date(status.connectedAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: '2-digit',
+                      year: 'numeric',
+                    })
+                  : '—'}
+                {status.lastSyncAt &&
+                  ` · last sync ${new Date(status.lastSyncAt).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit' })}`}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={disconnect}
+              disabled={disconnecting}
+              className="text-danger-500 hover:bg-danger-500/10 hover:text-danger-500"
+            >
+              {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
+              Disconnect
+            </Button>
+          </div>
+          <p className="text-[11.5px] text-fg-muted">
+            Use the <strong>Sync Gmail</strong> button on the Bids page to pull
+            recent bid invites. Auto-sync (background polling) ships in a future
+            update — for now it&apos;s on-demand.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 rounded-md border border-warn-500/30 bg-warn-500/5 px-4 py-3">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warn-500" />
+            <div className="flex-1">
+              <div className="text-[13px] font-semibold text-fg-default">
+                Not connected yet
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-fg-muted">
+                Authorize the CRM to read your Gmail (read-only) so it can pull
+                bid invitations and run them through the AI extractor.
+              </div>
+            </div>
+          </div>
+          <Button asChild>
+            <a href="/api/auth/gmail/start">
+              <Mail className="h-3.5 w-3.5" />
+              Connect Gmail
+            </a>
+          </Button>
+          <p className="text-[10.5px] text-fg-subtle">
+            Scopes requested: <span className="font-mono">gmail.readonly</span> + your email address.
+            Tokens are stored on your user record and can be revoked here at any
+            time, or in your Google account settings.
+          </p>
+        </div>
+      )}
+    </Section>
   );
 }

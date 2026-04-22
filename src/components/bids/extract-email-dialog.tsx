@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Sparkles,
@@ -80,12 +80,19 @@ type Priority = (typeof VALID_PRIORITIES)[number];
 export function ExtractEmailDialog({
   open,
   onOpenChange,
+  /** When set, dialog skips the paste step and loads this extraction
+   *  for review (used by the Gmail sync inbox). */
+  loadExtractionId,
+  onClosed,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  loadExtractionId?: string | null;
+  onClosed?: () => void;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('paste');
+  const [loadingExisting, setLoadingExisting] = useState(false);
 
   // Step 1
   const [subject, setSubject] = useState('');
@@ -124,6 +131,52 @@ export function ExtractEmailDialog({
     setClientChoice('create');
   }
 
+  function hydrateFromExtraction(r: ExtractionResponse) {
+    setExtraction(r);
+    const e = r.extractedData;
+    setProjectName(e.projectName ?? '');
+    setProjectAddress(e.projectAddress ?? '');
+    const matched = VALID_WORK_TYPES.find(
+      (w) => w.toLowerCase() === (e.workType ?? '').toLowerCase()
+    );
+    setWorkType(matched ?? (e.workType ? 'Other' : ''));
+    setResponseDeadline(e.responseDeadline ?? '');
+    setPriority((e.priority as Priority | null) ?? 'medium');
+    setNotes(e.notes ?? '');
+    setBondRequired(e.bondRequired ?? false);
+    setUnionJob(e.unionJob ?? false);
+    setPrevailingWage(e.prevailingWage ?? false);
+    setDavisBacon(e.davisBacon ?? false);
+    setInsuranceRequirements(e.insuranceRequirements ?? '');
+    setStep('review');
+  }
+
+  // When opened with an existing extraction id (e.g. from Gmail sync inbox),
+  // skip the paste step and load that record straight into the review form.
+  useEffect(() => {
+    if (!open || !loadExtractionId) return;
+    let active = true;
+    setLoadingExisting(true);
+    fetch(`/api/bids/extractions/${loadExtractionId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!active) return;
+        if (data?.error) throw new Error(data.error);
+        hydrateFromExtraction(data as ExtractionResponse);
+      })
+      .catch((err) => {
+        if (!active) return;
+        toast.error(err.message ?? 'Failed to load extraction');
+      })
+      .finally(() => {
+        if (active) setLoadingExisting(false);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, loadExtractionId]);
+
   async function handleExtract(e: React.FormEvent) {
     e.preventDefault();
     if (rawEmail.trim().length < 20) {
@@ -143,28 +196,7 @@ export function ExtractEmailDialog({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Extraction failed');
-      const r = data as ExtractionResponse;
-      setExtraction(r);
-
-      // Pre-populate editable fields from the extraction
-      const e = r.extractedData;
-      setProjectName(e.projectName ?? '');
-      setProjectAddress(e.projectAddress ?? '');
-      // workType — match against VALID_WORK_TYPES, otherwise "Other"
-      const matched = VALID_WORK_TYPES.find(
-        (w) => w.toLowerCase() === (e.workType ?? '').toLowerCase()
-      );
-      setWorkType(matched ?? (e.workType ? 'Other' : ''));
-      setResponseDeadline(e.responseDeadline ?? '');
-      setPriority((e.priority as Priority | null) ?? 'medium');
-      setNotes(e.notes ?? '');
-      setBondRequired(e.bondRequired ?? false);
-      setUnionJob(e.unionJob ?? false);
-      setPrevailingWage(e.prevailingWage ?? false);
-      setDavisBacon(e.davisBacon ?? false);
-      setInsuranceRequirements(e.insuranceRequirements ?? '');
-
-      setStep('review');
+      hydrateFromExtraction(data as ExtractionResponse);
     } catch (err: any) {
       toast.error(err.message ?? 'Extraction failed');
     } finally {

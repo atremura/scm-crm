@@ -36,6 +36,14 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  // Gmail OAuth — refresh token stored after user authorizes.
+  // We exchange it for short-lived access tokens at sync time.
+  gmailEmail            String?   @map("gmail_email")
+  gmailRefreshToken     String?   @map("gmail_refresh_token")
+  gmailConnectedAt      DateTime? @map("gmail_connected_at")
+  gmailLastSyncAt       DateTime? @map("gmail_last_sync_at")
+  gmailHistoryId        String?   @map("gmail_history_id")
+
   role              Role                    @relation(fields: [roleId], references: [id])
   modulePermissions UserModulePermission[]
   assignedBids      Bid[]                   @relation("BidAssignedTo")
