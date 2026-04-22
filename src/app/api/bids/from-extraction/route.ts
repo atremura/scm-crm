@@ -2,22 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
-import { generateBidNumber } from '@/lib/bid-server';
 import { VALID_PRIORITIES } from '@/lib/bid-utils';
-import { geocodeAddress } from '@/lib/geocoding';
-import { distanceAndBearingFromBoston } from '@/lib/geo';
-import { gmailClientFromRefresh, downloadAttachment, type GmailAttachment } from '@/lib/gmail';
-import { saveFile } from '@/lib/storage';
-
-/** Map common file extensions to our document_type categories. */
-function inferDocumentType(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  if (['png', 'jpg', 'jpeg'].includes(ext)) return 'photo';
-  if (['pdf', 'dwg', 'rvt'].includes(ext)) return 'plans';
-  if (['xls', 'xlsx'].includes(ext)) return 'other';
-  if (['doc', 'docx'].includes(ext)) return 'specs';
-  return 'other';
-}
+import { acceptExtractionAsBid } from '@/lib/bid-creator';
 
 const requestSchema = z.object({
   extractionId: z.string().uuid(),
@@ -66,7 +52,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  // Must reference a client one way or another
   if (!parsed.clientId && !parsed.newClient) {
     return NextResponse.json(
       { error: 'Provide either clientId or newClient' },
@@ -74,193 +59,38 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Neon serverless can hibernate between requests — wake it with a retry
-  // on the first DB hit, then proceed normally.
-  let extraction = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      extraction = await prisma.bidExtraction.findUnique({
-        where: { id: parsed.extractionId },
-      });
-      break;
-    } catch (err: any) {
-      if (err?.code === 'P1001' && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-        continue;
-      }
-      throw err;
-    }
-  }
-  if (!extraction) {
-    return NextResponse.json({ error: 'Extraction not found' }, { status: 404 });
-  }
-  if (extraction.status !== 'pending') {
-    return NextResponse.json(
-      { error: 'This extraction has already been processed' },
-      { status: 400 }
-    );
-  }
-
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Resolve / create the client
-      let clientId = parsed.clientId ?? '';
-      if (!clientId && parsed.newClient) {
-        const client = await tx.client.create({
-          data: {
-            companyName: parsed.newClient.companyName,
-            type: parsed.newClient.type ?? null,
-            city: parsed.newClient.city ?? null,
-            state: parsed.newClient.state ?? null,
-            contacts: parsed.newClient.contactName
-              ? {
-                  create: [
-                    {
-                      name: parsed.newClient.contactName,
-                      email: parsed.newClient.contactEmail ?? null,
-                      phone: parsed.newClient.contactPhone ?? null,
-                      isPrimary: true,
-                    },
-                  ],
-                }
-              : undefined,
-          },
-        });
-        clientId = client.id;
-      }
-
-      // 2. Create the bid (source = "email_ai")
-      const bidNumber = await generateBidNumber(tx as any);
-      const bid = await tx.bid.create({
-        data: {
-          bidNumber,
-          clientId,
-          projectName: parsed.bid.projectName,
-          projectAddress: parsed.bid.projectAddress ?? null,
-          workType: parsed.bid.workType ?? null,
-          receivedDate: new Date(),
-          responseDeadline: parsed.bid.responseDeadline
-            ? new Date(parsed.bid.responseDeadline + 'T23:59:59')
-            : null,
-          priority: parsed.bid.priority,
-          notes: parsed.bid.notes ?? null,
-          bondRequired: parsed.bid.bondRequired ?? false,
-          unionJob: parsed.bid.unionJob ?? false,
-          prevailingWage: parsed.bid.prevailingWage ?? false,
-          davisBacon: parsed.bid.davisBacon ?? false,
-          insuranceRequirements: parsed.bid.insuranceRequirements ?? null,
-          source: 'email_ai',
-          status: 'new',
-        },
-      });
-
-      // 3. History entry
-      await tx.bidStatusHistory.create({
-        data: {
-          bidId: bid.id,
-          changedBy: ctx.userId,
-          fromStatus: null,
-          toStatus: 'new',
-          notes: `Bid created from AI email extraction (confidence ${extraction.confidence ?? 'n/a'})`,
-        },
-      });
-
-      // 3a. Project links extracted from the email
-      const extractedLinks = (extraction.extractedData as any)?.links;
-      if (Array.isArray(extractedLinks) && extractedLinks.length > 0) {
-        await tx.bidLink.createMany({
-          data: extractedLinks
-            .filter((l: any) => l && typeof l.url === 'string' && l.url.startsWith('http'))
-            .map((l: any) => ({
-              bidId: bid.id,
-              url: l.url,
-              label: l.label ?? null,
-              category: l.category ?? 'other',
-              source: 'email_ai',
-            })),
-        });
-      }
-
-      // 4. Mark the extraction accepted + link
-      await tx.bidExtraction.update({
-        where: { id: extraction.id },
-        data: {
-          bidId: bid.id,
-          status: 'accepted',
-          acceptedAt: new Date(),
-        },
-      });
-
-      return bid;
-    }, {
-      // Neon serverless cold-start can push past the default 5s easily.
-      timeout: 30_000,
-      maxWait: 10_000,
+    const result = await acceptExtractionAsBid(parsed.extractionId, {
+      actorUserId: ctx.userId,
+      clientId: parsed.clientId,
+      newClient: parsed.newClient,
+      bidOverrides: {
+        projectName: parsed.bid.projectName,
+        projectAddress: parsed.bid.projectAddress ?? null,
+        workType: parsed.bid.workType ?? null,
+        responseDeadline: parsed.bid.responseDeadline ?? null,
+        priority: parsed.bid.priority,
+        notes: parsed.bid.notes ?? null,
+        bondRequired: parsed.bid.bondRequired ?? false,
+        unionJob: parsed.bid.unionJob ?? false,
+        prevailingWage: parsed.bid.prevailingWage ?? false,
+        davisBacon: parsed.bid.davisBacon ?? false,
+        insuranceRequirements: parsed.bid.insuranceRequirements ?? null,
+      },
+      // Manual review path — start at 'new' so user can do normal qualify flow
+      forceStatus: 'new',
     });
 
-    // 5a. Best-effort attachment download (outside the transaction)
-    // If this extraction came from Gmail sync, it carries the attachment
-    // metadata. Pull each attachment via the Gmail API using the user's
-    // refresh token and persist it as a BidDocument on the new bid.
-    const attachments = extraction.attachments as GmailAttachment[] | null;
-    if (Array.isArray(attachments) && attachments.length > 0) {
-      const user = await prisma.user.findUnique({
-        where: { id: ctx.userId },
-        select: { gmailRefreshToken: true },
-      });
-      if (user?.gmailRefreshToken) {
-        const gmail = gmailClientFromRefresh(user.gmailRefreshToken);
-        for (const att of attachments) {
-          try {
-            const buf = await downloadAttachment(gmail, att.messageId, att.attachmentId);
-            // Re-use saveFile via a File-shaped Blob wrapper
-            const blob = new Blob([buf], { type: att.mimeType });
-            const file = new File([blob], att.filename, { type: att.mimeType });
-            const saved = await saveFile(file, result.id);
-            await prisma.bidDocument.create({
-              data: {
-                bidId: result.id,
-                fileName: saved.fileName,
-                fileUrl: saved.url,
-                fileType: saved.fileType,
-                fileSizeKb: saved.fileSizeKb,
-                documentType: inferDocumentType(att.filename),
-              },
-            });
-          } catch (e) {
-            console.warn('[from-extraction] attachment download failed', att.filename, e);
-          }
-        }
-      }
-    }
-
-    // 5. Best-effort geocoding (outside the transaction — Nominatim is slow)
-    if (result.projectAddress) {
-      try {
-        const geo = await geocodeAddress(result.projectAddress);
-        if (geo) {
-          const { miles } = distanceAndBearingFromBoston(geo.lat, geo.lng);
-          await prisma.bid.update({
-            where: { id: result.id },
-            data: {
-              projectLatitude: geo.lat,
-              projectLongitude: geo.lng,
-              distanceMiles: Math.round(miles * 10) / 10,
-            },
-          });
-        }
-      } catch (e) {
-        console.warn('[bids.from-extraction] geocode failed', e);
-      }
-    }
-
     const fresh = await prisma.bid.findUnique({
-      where: { id: result.id },
+      where: { id: result.bidId },
       include: { client: true },
     });
     return NextResponse.json(fresh, { status: 201 });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[bids.from-extraction.POST]', err);
-    return NextResponse.json({ error: 'Failed to create bid' }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message ?? 'Failed to create bid' },
+      { status: 500 }
+    );
   }
 }

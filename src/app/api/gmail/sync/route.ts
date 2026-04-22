@@ -14,8 +14,42 @@ import {
 } from '@/lib/bid-extraction';
 import { claude, EXTRACTION_MODEL, costForUsage } from '@/lib/claude-client';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { evaluateBid, type AutoCaptureSettings } from '@/lib/bid-evaluator';
+import { acceptExtractionAsBid } from '@/lib/bid-creator';
 
 const MAX_PER_RUN = 10;
+
+/** Pull auto-capture config from system_settings with sensible defaults. */
+async function loadAutoCaptureSettings(): Promise<AutoCaptureSettings> {
+  const rows = await prisma.systemSetting.findMany({
+    where: {
+      key: {
+        in: [
+          'auto_create_bids',
+          'auto_min_confidence',
+          'auto_allowed_states',
+          'auto_qualified_status',
+          'max_distance_miles',
+        ],
+      },
+    },
+  });
+  const map: Record<string, string> = {};
+  rows.forEach((r) => (map[r.key] = r.value));
+  const states = (map.auto_allowed_states ?? 'MA, NH, RI, CT, VT, ME')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+  const qualifiedStatus =
+    (map.auto_qualified_status as 'new' | 'qualified' | undefined) ?? 'qualified';
+  return {
+    enabled: (map.auto_create_bids ?? 'false') === 'true',
+    minConfidence: parseInt(map.auto_min_confidence ?? '70', 10) || 70,
+    allowedStates: states,
+    qualifiedStatus,
+    maxDistanceMiles: parseInt(map.max_distance_miles ?? '100', 10) || 100,
+  };
+}
 
 export async function POST(req: NextRequest) {
   const ctx = await requireAuth();
@@ -100,6 +134,10 @@ export async function POST(req: NextRequest) {
     subject: string | null;
     from: string | null;
     extractionId?: string;
+    bidId?: string;
+    bidNumber?: string;
+    autoStatus?: 'qualified' | 'rejected' | 'pending_review';
+    autoReason?: string;
     error?: string;
     skipped?: boolean;
   }> = [];
@@ -110,7 +148,12 @@ export async function POST(req: NextRequest) {
     prisma.systemSetting.findUnique({ where: { key: 'base_address' } }),
   ]);
 
+  // Auto-capture rules — drives whether we auto-create bids or leave for review
+  const autoSettings = await loadAutoCaptureSettings();
+
   let created = 0;
+  let autoQualified = 0;
+  let autoRejected = 0;
 
   for (const ref of messageRefs) {
     if (seenIds.has(ref.id)) {
@@ -194,6 +237,7 @@ export async function POST(req: NextRequest) {
     const usage = response.usage;
     const cost = costForUsage(usage);
 
+    let extractionId: string;
     try {
       const record = await prisma.bidExtraction.create({
         data: {
@@ -216,19 +260,104 @@ export async function POST(req: NextRequest) {
         },
         select: { id: true },
       });
+      extractionId = record.id;
       created++;
-      results.push({
-        id: ref.id,
-        subject: parsed.subject,
-        from: parsed.from,
-        extractionId: record.id,
-      });
     } catch (err: any) {
       results.push({
         id: ref.id,
         subject: parsed.subject,
         from: parsed.from,
         error: `DB error: ${err?.message ?? 'unknown'}`,
+      });
+      continue;
+    }
+
+    // Auto-capture evaluation (only when feature is ON and confidence is high enough)
+    const decision = await evaluateBid(
+      {
+        projectAddress: data.projectAddress ?? null,
+        stateHint: null, // rely on address parsing inside evaluator
+        confidence: Number(data.confidenceOverall) || 0,
+      },
+      autoSettings
+    );
+
+    if (decision.decision === 'needs_manual_review') {
+      // Leave as pending — the usual review flow picks it up
+      results.push({
+        id: ref.id,
+        subject: parsed.subject,
+        from: parsed.from,
+        extractionId,
+        autoStatus: 'pending_review',
+        autoReason: decision.reason,
+      });
+      continue;
+    }
+
+    // Auto-create the bid + client
+    const companyName = (data as any)?.companyName?.trim() ?? '';
+    if (!companyName) {
+      // Claude didn't find a sender company — safer to send to manual review
+      results.push({
+        id: ref.id,
+        subject: parsed.subject,
+        from: parsed.from,
+        extractionId,
+        autoStatus: 'pending_review',
+        autoReason: 'No company name detected in email',
+      });
+      continue;
+    }
+
+    try {
+      const status =
+        decision.decision === 'auto_create_qualified'
+          ? autoSettings.qualifiedStatus
+          : 'rejected';
+      const result = await acceptExtractionAsBid(extractionId, {
+        actorUserId: ctx.userId,
+        newClient: {
+          companyName,
+          type: 'General Contractor',
+          contactName: (data as any)?.contactName ?? null,
+          contactEmail: (data as any)?.contactEmail ?? null,
+          contactPhone: (data as any)?.contactPhone ?? null,
+        },
+        forceStatus: status,
+        statusNote:
+          decision.decision === 'auto_create_rejected'
+            ? `Auto-rejected: ${decision.reason}`
+            : `Auto-qualified by rules`,
+        prefilledLat: decision.lat,
+        prefilledLng: decision.lng,
+        prefilledDistance: decision.distanceMiles,
+      });
+
+      if (status === 'rejected') autoRejected++;
+      else autoQualified++;
+
+      results.push({
+        id: ref.id,
+        subject: parsed.subject,
+        from: parsed.from,
+        extractionId,
+        bidId: result.bidId,
+        bidNumber: result.bidNumber,
+        autoStatus: status === 'rejected' ? 'rejected' : 'qualified',
+        autoReason:
+          decision.decision === 'auto_create_rejected'
+            ? decision.reason
+            : undefined,
+      });
+    } catch (err: any) {
+      console.error('[gmail.sync auto-create]', err);
+      results.push({
+        id: ref.id,
+        subject: parsed.subject,
+        from: parsed.from,
+        extractionId,
+        error: `Auto-create failed: ${err?.message ?? 'unknown'}`,
       });
     }
   }
@@ -242,6 +371,10 @@ export async function POST(req: NextRequest) {
     processed: messageRefs.length,
     skipped: results.filter((r) => r.skipped).length,
     created,
+    autoQualified,
+    autoRejected,
+    pendingReview: results.filter((r) => r.autoStatus === 'pending_review').length,
+    autoEnabled: autoSettings.enabled,
     messages: results,
     query,
   });

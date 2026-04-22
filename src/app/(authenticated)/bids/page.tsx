@@ -165,10 +165,29 @@ export default function BidsPage() {
       const res = await fetch('/api/gmail/sync?limit=10', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Sync failed');
-      const { processed, skipped, created } = data;
+      const {
+        processed,
+        skipped,
+        created,
+        autoQualified,
+        autoRejected,
+        pendingReview,
+        autoEnabled,
+      } = data;
       if (processed === 0) {
         toast.success('Inbox checked — no matching emails in the last 30 days.');
+      } else if (autoEnabled) {
+        // Auto-capture ON — most should have turned into bids
+        const parts: string[] = [];
+        if (autoQualified) parts.push(`${autoQualified} auto-qualified`);
+        if (autoRejected) parts.push(`${autoRejected} auto-rejected`);
+        if (pendingReview) parts.push(`${pendingReview} need review`);
+        if (skipped) parts.push(`${skipped} already seen`);
+        toast.success(parts.join(' · ') || `${created} processed`);
+        await Promise.all([loadPending(), loadBids(tab, search)]);
+        if (pendingReview > 0) setPendingOpen(true);
       } else {
+        // Auto-capture OFF — everything goes to pending review (current behavior)
         toast.success(
           `${created} new extracted, ${skipped} already seen (${processed} matched)`
         );

@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Unplug,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,12 @@ const DEFAULTS: Settings = {
   max_distance_miles: '100',
   preferred_work_types: 'Finish Carpentry, Siding, Sheet Metal',
   ai_auto_analyze: 'true',
+
+  // Auto-capture rules (Phase 1.5C)
+  auto_create_bids: 'false',
+  auto_min_confidence: '70',
+  auto_allowed_states: 'MA, NH, RI, CT, VT, ME',
+  auto_qualified_status: 'qualified', // 'new' or 'qualified'
 };
 
 export default function SettingsPage() {
@@ -287,6 +294,116 @@ export default function SettingsPage() {
 
       {/* Gmail */}
       <GmailSection />
+
+      {/* Auto-capture rules */}
+      <Section
+        icon={<Zap className="h-4 w-4" />}
+        title="Auto-capture rules"
+        description="When ON, Gmail sync auto-creates bids that pass your rules — you skip the review step"
+      >
+        <div className="space-y-5">
+          {/* Master switch */}
+          <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-sunken/40 px-4 py-3">
+            <div>
+              <div className="text-[13px] font-semibold text-fg-default">
+                Auto-create bids from Gmail
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-fg-muted">
+                When enabled, each synced email that meets the rules below
+                becomes a bid automatically. Emails that don&apos;t meet the rules
+                become bids too, but flagged as <span className="font-semibold text-danger-500">auto-rejected</span> with
+                the reason noted.
+              </div>
+            </div>
+            <Switch
+              checked={settings.auto_create_bids === 'true'}
+              onCheckedChange={(v) =>
+                update('auto_create_bids', v ? 'true' : 'false')
+              }
+            />
+          </div>
+
+          {settings.auto_create_bids === 'true' && (
+            <>
+              <FormField
+                label={`Minimum confidence — currently ${settings.auto_min_confidence ?? '70'}%`}
+                help="Emails where Claude's extraction confidence is below this threshold fall back to manual review."
+              >
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={settings.auto_min_confidence ?? '70'}
+                  onChange={(e) => update('auto_min_confidence', e.target.value)}
+                  className="w-full cursor-pointer accent-blue-500"
+                />
+                <div className="mt-1 flex items-center justify-between text-[10.5px] text-fg-subtle">
+                  <span>0% (always auto)</span>
+                  <span>100% (very strict)</span>
+                </div>
+              </FormField>
+
+              <FormField
+                label="Allowed states (fallback when distance can't be computed)"
+                help="Distance is the primary rule. If an email's address can't be geocoded, the state list is the fallback. Press Enter to add."
+              >
+                <StateEditor
+                  states={(settings.auto_allowed_states ?? '')
+                    .split(',')
+                    .map((s) => s.trim().toUpperCase())
+                    .filter(Boolean)}
+                  onChange={(arr) =>
+                    update('auto_allowed_states', arr.join(', '))
+                  }
+                />
+              </FormField>
+
+              <FormField label="Initial status for auto-accepted bids">
+                <div className="inline-flex rounded-md bg-sunken p-0.5">
+                  {(['new', 'qualified'] as const).map((s) => {
+                    const active = settings.auto_qualified_status === s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => update('auto_qualified_status', s)}
+                        className={`rounded px-3 py-1 text-[12px] font-semibold capitalize transition ${
+                          active
+                            ? 'bg-surface text-fg-default shadow-sm'
+                            : 'text-fg-muted'
+                        }`}
+                      >
+                        {s === 'new' ? 'New (needs manual qualify)' : 'Qualified (straight to takeoff)'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </FormField>
+
+              <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 text-[11.5px] leading-relaxed text-fg-muted">
+                <div className="mb-1.5 font-semibold text-blue-500">
+                  How the rules combine:
+                </div>
+                <div className="space-y-1 font-mono text-[11px]">
+                  <div>
+                    <span className="text-success-500">✓</span> distance ≤ {settings.max_distance_miles ?? '100'} mi → <span className="text-success-500">ACCEPT</span> (any state)
+                  </div>
+                  <div>
+                    <span className="text-danger-500">✗</span> distance &gt; {settings.max_distance_miles ?? '100'} mi → <span className="text-danger-500">REJECT</span> (even if state is allowed)
+                  </div>
+                  <div>
+                    <span className="text-warn-500">?</span> no geocodable address → fallback to state list: state ∈ allowed → <span className="text-success-500">ACCEPT</span>, else <span className="text-danger-500">REJECT</span>
+                  </div>
+                  <div>
+                    <span className="text-warn-500">?</span> confidence &lt; {settings.auto_min_confidence ?? '70'}% → <span className="text-fg-muted">needs manual review</span> (not auto-rejected)
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Section>
 
       {/* AI */}
       <Section
@@ -549,5 +666,76 @@ function GmailSection() {
         </div>
       )}
     </Section>
+  );
+}
+
+/** Two-letter US state code editor — chip list. */
+function StateEditor({
+  states,
+  onChange,
+}: {
+  states: string[];
+  onChange: (arr: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  function add() {
+    const s = draft.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(s)) {
+      toast.error('Use a 2-letter state code (e.g. MA)');
+      return;
+    }
+    if (states.includes(s)) {
+      toast.error(`${s} already in list`);
+      return;
+    }
+    onChange([...states, s]);
+    setDraft('');
+  }
+
+  function remove(s: string) {
+    onChange(states.filter((x) => x !== s));
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {states.map((s) => (
+          <span
+            key={s}
+            className="inline-flex items-center gap-1.5 rounded-full bg-success-500/15 px-2.5 py-1 font-mono text-[12px] font-bold text-success-500"
+          >
+            {s}
+            <button
+              type="button"
+              onClick={() => remove(s)}
+              className="grid h-4 w-4 place-items-center rounded-full text-success-500/70 hover:bg-success-500/20 hover:text-success-500"
+              aria-label={`Remove ${s}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value.toUpperCase().slice(0, 2))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="e.g. NY"
+          maxLength={2}
+          className="uppercase"
+        />
+        <Button type="button" variant="outline" onClick={add}>
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+    </div>
   );
 }
