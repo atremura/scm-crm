@@ -7,7 +7,8 @@ import { MAP_STATUS, type MapNode, type MapNodeStatus } from '@/lib/dashboard-mo
 import { distanceAndBearingFromBoston, projectFromBoston } from '@/lib/geo';
 import { NE_STATES } from '@/lib/ne-states';
 
-const HUB = { x: 760, y: 310 };
+const HUB = { x: 500, y: 360 };
+const PX_PER_MILE = 2.5;
 
 type ApiBid = {
   id: string;
@@ -86,7 +87,7 @@ function bidToNode(bid: ApiBid): MapNode {
     bearing = hash01(bid.id) * Math.PI * 2 - Math.PI; // map [0,2π) into [-π, π)
   }
 
-  const radius = distance !== null ? Math.min(distance * 1.8 + 14, 220) : 24;
+  const radius = distance !== null ? Math.min(distance * PX_PER_MILE + 14, 280) : 24;
 
   // SVG y-axis grows downward; convert compass bearing accordingly.
   // bearing 0 = North → -y (up). 90° = East → +x.
@@ -279,40 +280,18 @@ export function ProjectMap() {
           <rect width="1000" height="720" fill="url(#pm-grid)" />
           <rect width="1000" height="720" fill="url(#pm-grid-bold)" />
 
-          {/* Lat/long reference */}
-          <g stroke="rgba(94, 134, 161, 0.1)" strokeWidth="0.5" strokeDasharray="2 4">
-            <line x1="0" y1="180" x2="1000" y2="180" />
-            <line x1="0" y1="360" x2="1000" y2="360" />
-            <line x1="0" y1="540" x2="1000" y2="540" />
-            <line x1="250" y1="0" x2="250" y2="720" />
-            <line x1="500" y1="0" x2="500" y2="720" />
-            <line x1="750" y1="0" x2="750" y2="720" />
-          </g>
-          <g
-            fontFamily="var(--font-mono)"
-            fontSize="8"
-            fill="rgba(148, 169, 186, 0.4)"
-            letterSpacing="0.08em"
-          >
-            <text x="8" y="178">42.5°N</text>
-            <text x="8" y="358">42.0°N</text>
-            <text x="8" y="538">41.5°N</text>
-            <text x="246" y="712">73°W</text>
-            <text x="496" y="712">72°W</text>
-            <text x="746" y="712">71°W</text>
-          </g>
 
           {/* New England state borders — projected azimuthally from Boston
               so they line up with bid markers (which use bearing+distance). */}
           {NE_STATES.map((state) => {
             const pts = state.ring.map(([lat, lng]) =>
-              projectFromBoston(lat, lng, HUB)
+              projectFromBoston(lat, lng, HUB, PX_PER_MILE)
             );
             const d =
               pts
                 .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)},${p.y.toFixed(1)}`)
                 .join(' ') + ' Z';
-            const label = projectFromBoston(state.labelAt[0], state.labelAt[1], HUB);
+            const label = projectFromBoston(state.labelAt[0], state.labelAt[1], HUB, PX_PER_MILE);
             return (
               <g key={state.code}>
                 <path
@@ -340,15 +319,15 @@ export function ProjectMap() {
           })}
 
           {/* Hub */}
-          <circle cx={HUB.x} cy={HUB.y} r="140" fill="url(#pm-hubGlow)" />
+          <circle cx={HUB.x} cy={HUB.y} r={PX_PER_MILE * 60} fill="url(#pm-hubGlow)" />
           <g fill="none" stroke="#5E86A1" strokeDasharray="2 6" opacity="0.35">
-            <circle cx={HUB.x} cy={HUB.y} r="45" />
-            <circle cx={HUB.x} cy={HUB.y} r="90" />
-            <circle cx={HUB.x} cy={HUB.y} r="135" />
+            <circle cx={HUB.x} cy={HUB.y} r={PX_PER_MILE * 25} />
+            <circle cx={HUB.x} cy={HUB.y} r={PX_PER_MILE * 50} />
+            <circle cx={HUB.x} cy={HUB.y} r={PX_PER_MILE * 75} />
             <circle
               cx={HUB.x}
               cy={HUB.y}
-              r="180"
+              r={PX_PER_MILE * 100}
               stroke="#3A5A7A"
               strokeDasharray="2 4"
               opacity="0.5"
@@ -356,14 +335,14 @@ export function ProjectMap() {
           </g>
           <g
             fontFamily="var(--font-mono)"
-            fontSize="8"
-            fill="rgba(148, 169, 186, 0.5)"
+            fontSize="9"
+            fill="rgba(148, 169, 186, 0.55)"
             letterSpacing="0.08em"
           >
-            <text x="800" y="268">25mi</text>
-            <text x="840" y="225">50mi</text>
-            <text x="880" y="185">75mi</text>
-            <text x="920" y="145">100mi</text>
+            <text x={HUB.x + 6} y={HUB.y - PX_PER_MILE * 25 - 3}>25mi</text>
+            <text x={HUB.x + 6} y={HUB.y - PX_PER_MILE * 50 - 3}>50mi</text>
+            <text x={HUB.x + 6} y={HUB.y - PX_PER_MILE * 75 - 3}>75mi</text>
+            <text x={HUB.x + 6} y={HUB.y - PX_PER_MILE * 100 - 3}>100mi</text>
           </g>
 
           <circle
