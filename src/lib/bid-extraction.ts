@@ -54,6 +54,26 @@ export const ExtractedBidSchema = z.object({
     .nullable()
     .describe('Insurance specifics if mentioned (limits, OCIP/CCIP, additional insured)'),
 
+  // External links found in the email body or signature
+  links: z
+    .array(
+      z.object({
+        url: z.string().describe('Full URL'),
+        label: z
+          .string()
+          .nullable()
+          .describe('Short human label, e.g. "Plans on Dropbox", "Pre-bid walkthrough Zoom"'),
+        category: z
+          .enum(['documents', 'portal', 'meeting', 'addendum', 'other'])
+          .describe(
+            'documents = plans/specs/exhibits in cloud storage; portal = BuildingConnected/Procore/etc; meeting = Zoom/Teams/Meet for walkthrough; addendum = updated set link; other = anything else'
+          ),
+      })
+    )
+    .describe(
+      'Every URL embedded in the email — plans, specs, walkthrough Zoom, GC portal, addendum drops. Empty array if none. Do NOT invent links not present in the text.'
+    ),
+
   // Auditor outputs
   notes: z
     .string()
@@ -88,6 +108,7 @@ Hard rules:
 - summary: 1-2 sentences, plain English, neutral tone. No emojis, no salesy language.
 - confidenceOverall: be honest. 90+ only if every key field (client, project, deadline, address) was clearly stated. 50-70 if you guessed several fields. <50 if it's barely a bid email.
 - flags: surface anything a human reviewer should double-check before accepting — e.g. "deadline language is ambiguous", "no address", "could be a duplicate of an earlier email".
+- links: extract EVERY URL the email contains and label/categorize it. Construction bid emails commonly link to plans on Dropbox/ShareFile/SmartBidNet, GC portals like BuildingConnected/Procore, Zoom/Teams walkthroughs, and addendum drops. Do not invent URLs that are not in the text. If there are none, return an empty array — never null.
 
 You will receive the email body (and possibly subject + sender) inside <email> tags. Return your structured result via the provided format.`;
 

@@ -146,8 +146,26 @@ model Bid {
   statusHistory  BidStatusHistory[]
   aiAnalysis     BidAiAnalysis[]
   extractions    BidExtraction[]     @relation("BidFromExtraction")
+  links          BidLink[]
 
   @@map("bids")
+}
+
+// External URLs found in a bid email — plans on Dropbox/ShareFile,
+// BuildingConnected/Procore portal links, walkthrough Zoom links, etc.
+// Categories: documents | portal | meeting | addendum | other
+model BidLink {
+  id        String   @id @default(uuid())
+  bidId     String   @map("bid_id")
+  url       String
+  label     String?
+  category  String?
+  source    String   @default("email_ai")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  bid Bid @relation(fields: [bidId], references: [id], onDelete: Cascade)
+
+  @@map("bid_links")
 }
 
 model BidDocument {

@@ -24,6 +24,14 @@ import {
   Save,
   Loader2,
   AlertCircle,
+  Link as LinkIcon,
+  ExternalLink,
+  FolderOpen,
+  Globe,
+  Video,
+  FilePlus,
+  Plus,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -107,6 +115,16 @@ type BidDetail = {
   assignedUser: { id: string; name: string; email: string } | null;
   documents: Document[];
   statusHistory: HistoryEntry[];
+  links: BidLink[];
+};
+
+type BidLink = {
+  id: string;
+  url: string;
+  label: string | null;
+  category: string | null;
+  source: string;
+  createdAt: string;
 };
 
 type User = {
@@ -552,6 +570,8 @@ function InfoTab({ bid, onSaved }: { bid: BidDetail; onSaved: () => void }) {
             )}
           </div>
         </Card>
+
+        <ProjectLinksCard bidId={bid.id} initial={bid.links} onChanged={onSaved} />
       </div>
 
       {/* Sidebar: client + meta */}
@@ -1223,3 +1243,184 @@ function RejectDialog({
     </Dialog>
   );
 }
+
+
+/* =========================================================
+   PROJECT LINKS CARD
+   ========================================================= */
+const CATEGORY_META: Record<string, { label: string; icon: any; color: string }> = {
+  documents: { label: 'Documents', icon: FolderOpen, color: 'text-blue-500 bg-blue-500/15' },
+  portal: { label: 'Portal', icon: Globe, color: 'text-violet-500 bg-violet-500/15' },
+  meeting: { label: 'Meeting', icon: Video, color: 'text-success-500 bg-success-500/15' },
+  addendum: { label: 'Addendum', icon: FilePlus, color: 'text-warn-500 bg-warn-500/15' },
+  other: { label: 'Link', icon: LinkIcon, color: 'text-fg-muted bg-sunken' },
+};
+
+function hostnameOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+function ProjectLinksCard({
+  bidId,
+  initial,
+  onChanged,
+}: {
+  bidId: string;
+  initial: BidLink[];
+  onChanged: () => void;
+}) {
+  const [links, setLinks] = useState<BidLink[]>(initial);
+  const [adding, setAdding] = useState(false);
+  const [draftUrl, setDraftUrl] = useState('');
+  const [draftLabel, setDraftLabel] = useState('');
+  const [draftCategory, setDraftCategory] = useState('other');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setLinks(initial); }, [initial]);
+
+  async function addLink() {
+    if (!draftUrl.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/bids/${bidId}/links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: draftUrl.trim(),
+          label: draftLabel.trim() || null,
+          category: draftCategory,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to add link');
+      setLinks([...links, data]);
+      setDraftUrl(''); setDraftLabel(''); setDraftCategory('other');
+      setAdding(false);
+      onChanged();
+      toast.success('Link added');
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to add link');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeLink(linkId: string) {
+    if (!confirm('Remove this link?')) return;
+    const res = await fetch(`/api/bids/${bidId}/links/${linkId}`, { method: 'DELETE' });
+    if (res.ok) {
+      setLinks(links.filter((l) => l.id !== linkId));
+      onChanged();
+    } else {
+      toast.error('Failed to remove link');
+    }
+  }
+
+  return (
+    <Card
+      title={`Project links (${links.length})`}
+      action={
+        !adding && (
+          <Button size='sm' variant='outline' onClick={() => setAdding(true)}>
+            <Plus className='h-3.5 w-3.5' />
+            Add link
+          </Button>
+        )
+      }
+    >
+      {links.length === 0 && !adding && (
+        <p className='rounded-md border border-dashed border-border bg-sunken/40 px-4 py-6 text-center text-[12.5px] text-fg-subtle'>
+          No links yet. Plans, GC portal, walkthrough Zoom — anything web-based goes here.
+        </p>
+      )}
+
+      {links.length > 0 && (
+        <ul className='divide-y divide-border'>
+          {links.map((link) => {
+            const meta = CATEGORY_META[link.category ?? 'other'] ?? CATEGORY_META.other;
+            const Icon = meta.icon;
+            return (
+              <li key={link.id} className='flex items-start gap-3 py-3 first:pt-0 last:pb-0'>
+                <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${meta.color}`}>
+                  <Icon className='h-4 w-4' />
+                </div>
+                <div className='min-w-0 flex-1'>
+                  <a
+                    href={link.url}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='inline-flex items-center gap-1.5 text-[13px] font-semibold text-fg-default hover:text-blue-500'
+                  >
+                    {link.label || hostnameOf(link.url)}
+                    <ExternalLink className='h-3 w-3' />
+                  </a>
+                  <div className='mt-0.5 truncate font-mono text-[11px] text-fg-muted'>
+                    {hostnameOf(link.url)}
+                  </div>
+                  <div className='mt-1 flex items-center gap-2'>
+                    <span className='text-[10.5px] uppercase tracking-[0.05em] text-fg-subtle'>
+                      {meta.label}
+                    </span>
+                    {link.source === 'email_ai' && (
+                      <span className='inline-flex items-center gap-0.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-violet-500'>
+                        <Sparkles className='h-2 w-2' />
+                        AI
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={() => removeLink(link.id)}
+                  className='text-fg-muted hover:text-danger-500'
+                  title='Remove'
+                >
+                  <Trash2 className='h-4 w-4' />
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {adding && (
+        <div className='mt-3 rounded-md border border-blue-500/30 bg-blue-500/5 p-3 space-y-2'>
+          <div className='grid grid-cols-1 gap-2 sm:grid-cols-[1fr_140px]'>
+            <Input
+              placeholder='https://…'
+              value={draftUrl}
+              onChange={(e) => setDraftUrl(e.target.value)}
+              autoFocus
+            />
+            <Select value={draftCategory} onValueChange={setDraftCategory}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(CATEGORY_META).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Input
+            placeholder='Label (optional) — e.g. Plans on Dropbox'
+            value={draftLabel}
+            onChange={(e) => setDraftLabel(e.target.value)}
+          />
+          <div className='flex justify-end gap-2'>
+            <Button size='sm' variant='ghost' onClick={() => { setAdding(false); setDraftUrl(''); setDraftLabel(''); }} disabled={saving}>
+              Cancel
+            </Button>
+            <Button size='sm' onClick={addLink} disabled={saving || !draftUrl.trim()}>
+              {saving ? <Loader2 className='h-3.5 w-3.5 animate-spin' /> : <Plus className='h-3.5 w-3.5' />}
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+

@@ -46,6 +46,7 @@ export async function GET(
           include: { user: { select: { id: true, name: true, email: true } } },
         },
         aiAnalysis: { orderBy: { analyzedAt: 'desc' } },
+        links: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });

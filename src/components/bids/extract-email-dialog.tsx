@@ -60,6 +60,7 @@ type ExtractionResponse = {
     summary: string;
     confidenceOverall: number;
     flags: string[];
+    links: { url: string; label: string | null; category: string }[];
   };
   confidence: number | string | null;
   flags: string[] | null;
@@ -537,6 +538,48 @@ export function ExtractEmailDialog({
                 </div>
               )}
             </div>
+
+            {/* Project links extracted by Claude */}
+            {(e.links?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                  <span className="text-[12.5px] font-semibold uppercase tracking-[0.06em] text-violet-500">
+                    Links Claude found ({e.links.length})
+                  </span>
+                </div>
+                <ul className="space-y-1.5">
+                  {e.links.map((link, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2 rounded-md bg-surface/60 px-2.5 py-2 text-[12px]"
+                    >
+                      <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase text-violet-500">
+                        {link.category}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        {link.label && (
+                          <div className="truncate text-[12.5px] font-semibold text-fg-default">
+                            {link.label}
+                          </div>
+                        )}
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate font-mono text-[10.5px] text-fg-muted hover:text-blue-500"
+                        >
+                          {link.url}
+                        </a>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[10.5px] text-fg-subtle">
+                  These will be saved on the bid&apos;s Info tab.
+                </p>
+              </div>
+            )}
 
             <DialogFooter>
               <Button

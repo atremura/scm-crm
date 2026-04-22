@@ -153,6 +153,22 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      // 3a. Project links extracted from the email
+      const extractedLinks = (extraction.extractedData as any)?.links;
+      if (Array.isArray(extractedLinks) && extractedLinks.length > 0) {
+        await tx.bidLink.createMany({
+          data: extractedLinks
+            .filter((l: any) => l && typeof l.url === 'string' && l.url.startsWith('http'))
+            .map((l: any) => ({
+              bidId: bid.id,
+              url: l.url,
+              label: l.label ?? null,
+              category: l.category ?? 'other',
+              source: 'email_ai',
+            })),
+        });
+      }
+
       // 4. Mark the extraction accepted + link
       await tx.bidExtraction.update({
         where: { id: extraction.id },
