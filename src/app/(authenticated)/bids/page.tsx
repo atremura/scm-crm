@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Mail,
-  Upload,
   Plus,
   Search,
   Filter,
@@ -24,6 +23,7 @@ import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AiScoreBar } from '@/components/bids/ai-score-bar';
+import { ExtractEmailDialog } from '@/components/bids/extract-email-dialog';
 import { getUrgencyLevel } from '@/lib/bid-utils';
 
 type ApiBid = {
@@ -107,6 +107,7 @@ export default function BidsPage() {
   const [tab, setTab] = useState<TabKey>('all');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('list');
+  const [extractOpen, setExtractOpen] = useState(false);
 
   async function loadBids(status: TabKey, q: string) {
     setLoading(true);
@@ -189,13 +190,13 @@ export default function BidsPage() {
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button variant="outline" size="sm" disabled title="Coming in Phase 1.5B">
+          <Button variant="outline" size="sm" onClick={() => setExtractOpen(true)}>
+            <Sparkles className="h-3.5 w-3.5" />
+            Capture from email
+          </Button>
+          <Button variant="outline" size="sm" disabled title="Gmail OAuth coming in Phase 1.5B-2">
             <Mail className="h-3.5 w-3.5" />
             Sync Gmail
-          </Button>
-          <Button variant="outline" size="sm" disabled title="Coming soon">
-            <Upload className="h-3.5 w-3.5" />
-            Import
           </Button>
           <Button size="sm" asChild>
             <Link href="/bids/new">
@@ -319,6 +320,8 @@ export default function BidsPage() {
       ) : (
         <BidsBoard bids={bids} loading={loading} />
       )}
+
+      <ExtractEmailDialog open={extractOpen} onOpenChange={setExtractOpen} />
     </div>
   );
 }

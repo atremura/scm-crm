@@ -40,6 +40,7 @@ model User {
   modulePermissions UserModulePermission[]
   assignedBids      Bid[]                   @relation("BidAssignedTo")
   statusChanges     BidStatusHistory[]
+  extractions       BidExtraction[]         @relation("UserExtractions")
 
   @@map("users")
 }
@@ -144,6 +145,7 @@ model Bid {
   documents      BidDocument[]
   statusHistory  BidStatusHistory[]
   aiAnalysis     BidAiAnalysis[]
+  extractions    BidExtraction[]     @relation("BidFromExtraction")
 
   @@map("bids")
 }
@@ -202,6 +204,39 @@ model BidAiAnalysis {
 // ============================================================
 // SYSTEM SETTINGS
 // ============================================================
+
+// AI extraction of bid emails — auditable record of every Claude call.
+// status: pending | accepted | rejected
+model BidExtraction {
+  id              String    @id @default(uuid())
+  bidId           String?   @map("bid_id")
+  rawEmail        String    @map("raw_email")
+  emailSubject    String?   @map("email_subject")
+  fromAddress     String?   @map("from_address")
+
+  extractedData   Json      @map("extracted_data")
+  confidence      Decimal?  @db.Decimal(5, 2)
+  flags           Json?
+  summary         String?
+
+  modelUsed       String    @map("model_used")
+  inputTokens     Int?      @map("input_tokens")
+  outputTokens    Int?      @map("output_tokens")
+  cacheReadTokens Int?      @map("cache_read_tokens")
+  costCents       Decimal?  @db.Decimal(10, 4) @map("cost_cents")
+
+  status          String    @default("pending")
+
+  extractedBy     String    @map("extracted_by")
+  acceptedAt      DateTime? @map("accepted_at")
+
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  bid             Bid?      @relation("BidFromExtraction", fields: [bidId], references: [id])
+  user            User      @relation("UserExtractions", fields: [extractedBy], references: [id])
+
+  @@map("bid_extractions")
+}
 
 model SystemSetting {
   id          String   @id @default(uuid())
