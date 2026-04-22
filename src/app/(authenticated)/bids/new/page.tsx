@@ -601,7 +601,7 @@ function Section({
   onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-surface">
+    <section className="rounded-lg border border-border bg-surface">
       <div
         onClick={collapsible ? () => onOpenChange?.(!open) : undefined}
         className={`flex items-center gap-3 px-5 py-4 ${
