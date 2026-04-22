@@ -6,6 +6,18 @@ import { generateBidNumber } from '@/lib/bid-server';
 import { VALID_PRIORITIES } from '@/lib/bid-utils';
 import { geocodeAddress } from '@/lib/geocoding';
 import { distanceAndBearingFromBoston } from '@/lib/geo';
+import { gmailClientFromRefresh, downloadAttachment, type GmailAttachment } from '@/lib/gmail';
+import { saveFile } from '@/lib/storage';
+
+/** Map common file extensions to our document_type categories. */
+function inferDocumentType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  if (['png', 'jpg', 'jpeg'].includes(ext)) return 'photo';
+  if (['pdf', 'dwg', 'rvt'].includes(ext)) return 'plans';
+  if (['xls', 'xlsx'].includes(ext)) return 'other';
+  if (['doc', 'docx'].includes(ext)) return 'specs';
+  return 'other';
+}
 
 const requestSchema = z.object({
   extractionId: z.string().uuid(),
@@ -185,6 +197,42 @@ export async function POST(req: NextRequest) {
       timeout: 30_000,
       maxWait: 10_000,
     });
+
+    // 5a. Best-effort attachment download (outside the transaction)
+    // If this extraction came from Gmail sync, it carries the attachment
+    // metadata. Pull each attachment via the Gmail API using the user's
+    // refresh token and persist it as a BidDocument on the new bid.
+    const attachments = extraction.attachments as GmailAttachment[] | null;
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { gmailRefreshToken: true },
+      });
+      if (user?.gmailRefreshToken) {
+        const gmail = gmailClientFromRefresh(user.gmailRefreshToken);
+        for (const att of attachments) {
+          try {
+            const buf = await downloadAttachment(gmail, att.messageId, att.attachmentId);
+            // Re-use saveFile via a File-shaped Blob wrapper
+            const blob = new Blob([buf], { type: att.mimeType });
+            const file = new File([blob], att.filename, { type: att.mimeType });
+            const saved = await saveFile(file, result.id);
+            await prisma.bidDocument.create({
+              data: {
+                bidId: result.id,
+                fileName: saved.fileName,
+                fileUrl: saved.url,
+                fileType: saved.fileType,
+                fileSizeKb: saved.fileSizeKb,
+                documentType: inferDocumentType(att.filename),
+              },
+            });
+          } catch (e) {
+            console.warn('[from-extraction] attachment download failed', att.filename, e);
+          }
+        }
+      }
+    }
 
     // 5. Best-effort geocoding (outside the transaction — Nominatim is slow)
     if (result.projectAddress) {

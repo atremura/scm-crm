@@ -90,6 +90,14 @@ function decodeBase64Url(data: string): string {
   return Buffer.from(padded, 'base64').toString('utf8');
 }
 
+export type GmailAttachment = {
+  messageId: string;
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 type ParsedMessage = {
   id: string;
   threadId: string;
@@ -99,7 +107,66 @@ type ParsedMessage = {
   snippet: string | null;
   /** Best-effort plain-text body. Falls back to stripped HTML when only HTML exists. */
   body: string;
+  attachments: GmailAttachment[];
 };
+
+/** Construction file types we care about — same allowlist as direct uploads. */
+const ATTACHMENT_EXTENSIONS = [
+  'pdf', 'dwg', 'rvt', 'xls', 'xlsx', 'doc', 'docx', 'png', 'jpg', 'jpeg',
+];
+
+function getExtension(filename: string): string {
+  const i = filename.lastIndexOf('.');
+  if (i === -1) return '';
+  return filename.slice(i + 1).toLowerCase();
+}
+
+/** Walks the MIME tree collecting attachment parts (parts with a filename + attachmentId). */
+function collectAttachments(
+  payload: gmail_v1.Schema$MessagePart | undefined,
+  messageId: string
+): GmailAttachment[] {
+  if (!payload) return [];
+  const out: GmailAttachment[] = [];
+  const queue: gmail_v1.Schema$MessagePart[] = [payload];
+  while (queue.length) {
+    const p = queue.shift()!;
+    if (p.parts) queue.push(...p.parts);
+    const filename = p.filename;
+    const attachmentId = p.body?.attachmentId;
+    if (!filename || !attachmentId) continue;
+    if (!ATTACHMENT_EXTENSIONS.includes(getExtension(filename))) continue;
+    out.push({
+      messageId,
+      attachmentId,
+      filename,
+      mimeType: p.mimeType ?? 'application/octet-stream',
+      sizeBytes: p.body?.size ?? 0,
+    });
+  }
+  return out;
+}
+
+/** Download an attachment by id and return its raw bytes. */
+export async function downloadAttachment(
+  gmail: gmail_v1.Gmail,
+  messageId: string,
+  attachmentId: string
+): Promise<Buffer> {
+  const res = await gmail.users.messages.attachments.get({
+    userId: 'me',
+    messageId,
+    id: attachmentId,
+  });
+  const data = res.data.data;
+  if (!data) throw new Error('Empty attachment payload');
+  // Gmail returns URL-safe base64
+  const padded = data
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(data.length / 4) * 4, '=');
+  return Buffer.from(padded, 'base64');
+}
 
 function getHeader(
   headers: gmail_v1.Schema$MessagePartHeader[] | undefined,
@@ -186,6 +253,7 @@ export async function fetchMessage(
     date: dateHeader ? new Date(dateHeader) : null,
     snippet: m.snippet ?? null,
     body: extractBody(m.payload),
+    attachments: collectAttachments(m.payload, m.id!),
   };
 }
 

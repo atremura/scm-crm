@@ -205,6 +205,7 @@ export async function POST(req: NextRequest) {
           confidence: data.confidenceOverall,
           flags: data.flags,
           summary: data.summary,
+          attachments: parsed.attachments.length > 0 ? (parsed.attachments as any) : undefined,
           modelUsed: EXTRACTION_MODEL,
           inputTokens: usage.input_tokens,
           outputTokens: usage.output_tokens,

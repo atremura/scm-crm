@@ -25,6 +25,7 @@ export async function GET(
         flags: true,
         summary: true,
         extractedData: true,
+        attachments: true,
         modelUsed: true,
         inputTokens: true,
         outputTokens: true,

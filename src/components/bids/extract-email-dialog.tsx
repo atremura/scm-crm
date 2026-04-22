@@ -65,6 +65,11 @@ type ExtractionResponse = {
   confidence: number | string | null;
   flags: string[] | null;
   summary: string | null;
+  attachments?: Array<{
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+  }> | null;
   modelUsed: string;
   inputTokens: number | null;
   outputTokens: number | null;
@@ -570,6 +575,38 @@ export function ExtractEmailDialog({
                 </div>
               )}
             </div>
+
+            {/* Gmail attachments — downloaded and saved as BidDocuments on accept */}
+            {(extraction.attachments?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-blue-500" />
+                  <span className="text-[12.5px] font-semibold uppercase tracking-[0.06em] text-blue-500">
+                    Email attachments ({extraction.attachments!.length}) — will be saved as documents
+                  </span>
+                </div>
+                <ul className="space-y-1.5">
+                  {extraction.attachments!.map((att, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-2 rounded-md bg-surface/60 px-2.5 py-2 text-[12px]"
+                    >
+                      <span className="inline-flex shrink-0 items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase text-blue-500">
+                        {(att.filename.split('.').pop() || '?').slice(0, 4)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-fg-default">
+                        {att.filename}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10.5px] text-fg-muted">
+                        {att.sizeBytes < 1024 * 1024
+                          ? `${Math.ceil(att.sizeBytes / 1024)} KB`
+                          : `${(att.sizeBytes / 1024 / 1024).toFixed(1)} MB`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Project links extracted by Claude */}
             {(e.links?.length ?? 0) > 0 && (

@@ -245,6 +245,11 @@ model BidExtraction {
   flags           Json?
   summary         String?
 
+  // Gmail attachments captured at sync time. Each entry:
+  //   { messageId, attachmentId, filename, mimeType, sizeBytes }
+  // Downloaded + persisted as BidDocument records when the user accepts.
+  attachments     Json?     @map("attachments")
+
   modelUsed       String    @map("model_used")
   inputTokens     Int?      @map("input_tokens")
   outputTokens    Int?      @map("output_tokens")
