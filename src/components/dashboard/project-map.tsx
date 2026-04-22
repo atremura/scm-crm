@@ -1,10 +1,155 @@
-import { MAP_NODES, MAP_STATUS } from '@/lib/dashboard-mock';
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
+import { MAP_STATUS, type MapNode, type MapNodeStatus } from '@/lib/dashboard-mock';
 
 const HUB = { x: 760, y: 310 };
 
+type ApiBid = {
+  id: string;
+  bidNumber: string;
+  projectName: string;
+  status: string;
+  priority: string;
+  source: string;
+  distanceMiles: string | number | null;
+  responseDeadline: string | null;
+  createdAt: string;
+  client: { id: string; companyName: string };
+};
+
+/** Status precedence: hot wins over the underlying status when priority=urgent. */
+function bidToMapStatus(bid: ApiBid): MapNodeStatus {
+  if (bid.priority === 'urgent') return 'hot';
+  if (bid.status === 'won' || bid.status === 'sent_to_takeoff') return 'active';
+  if (bid.status === 'lost' || bid.status === 'rejected') return 'done';
+  // new, qualified, anything else still in pipeline
+  return 'bid';
+}
+
+/** Stable 0..1 hash from string — used to position bids without lat/lng. */
+function hash01(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+const SVG_BOUNDS = {
+  minX: 60,
+  maxX: 940,
+  minY: 70,
+  maxY: 640,
+};
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/** Convert a bid into an SVG node positioned around the Boston hub.
+ *  ~1.8px per mile; if distance is unknown, place close to hub.
+ *  Angle is derived from a hash of the bid id so positions are stable. */
+function bidToNode(bid: ApiBid): MapNode {
+  const distRaw =
+    bid.distanceMiles === null || bid.distanceMiles === undefined
+      ? null
+      : Number(bid.distanceMiles);
+  const distance = distRaw && Number.isFinite(distRaw) ? distRaw : null;
+  const radius = distance !== null ? Math.min(distance * 1.8 + 14, 220) : 24;
+
+  const angle = hash01(bid.id) * Math.PI * 2;
+  const x = clamp(HUB.x + radius * Math.cos(angle), SVG_BOUNDS.minX, SVG_BOUNDS.maxX);
+  const y = clamp(HUB.y + radius * Math.sin(angle), SVG_BOUNDS.minY, SVG_BOUNDS.maxY);
+
+  const status = bidToMapStatus(bid);
+  const distLabel = distance !== null ? `${distance}mi` : '—';
+  // Truncate names so they fit the SVG without overlapping too much
+  const shortName =
+    bid.projectName.length > 26 ? bid.projectName.slice(0, 24) + '…' : bid.projectName;
+
+  return {
+    id: bid.bidNumber.replace(/^BID-\d{4}-/, 'BID-'),
+    name: shortName,
+    x,
+    y,
+    status,
+    dist: distLabel,
+    val: status === 'done' ? 'completed' : '—',
+    anchor: x > HUB.x ? 'start' : 'end',
+    below: y < HUB.y - 10 ? false : y > HUB.y + 50,
+  };
+}
+
 export function ProjectMap() {
-  const routesByDist = [...MAP_NODES].sort(
-    (a, b) => parseFloat(a.dist) - parseFloat(b.dist)
+  const [bids, setBids] = useState<ApiBid[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/bids')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        if (active && Array.isArray(d)) setBids(d);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const visibleBids = useMemo(
+    () => bids.filter((b) => !['rejected', 'lost'].includes(b.status)),
+    [bids]
+  );
+
+  const nodes = useMemo(() => visibleBids.map(bidToNode), [visibleBids]);
+  const bidByNodeId = useMemo(() => {
+    const m = new Map<string, ApiBid>();
+    visibleBids.forEach((b) => {
+      m.set(b.bidNumber.replace(/^BID-\d{4}-/, 'BID-'), b);
+    });
+    return m;
+  }, [visibleBids]);
+
+  // Stats from real data
+  const stats = useMemo(() => {
+    const distances = visibleBids
+      .map((b) =>
+        b.distanceMiles !== null && b.distanceMiles !== undefined
+          ? Number(b.distanceMiles)
+          : null
+      )
+      .filter((d): d is number => d !== null && Number.isFinite(d));
+    const avg = distances.length
+      ? Math.round(distances.reduce((a, b) => a + b, 0) / distances.length)
+      : 0;
+    const farthest = distances.length ? Math.max(...distances) : 0;
+    const active = visibleBids.filter((b) =>
+      ['sent_to_takeoff', 'won'].includes(b.status)
+    ).length;
+    const overThreshold = visibleBids.filter(
+      (b) => b.distanceMiles !== null && Number(b.distanceMiles) > 100
+    ).length;
+    return { avg, farthest, active, overThreshold, total: visibleBids.length };
+  }, [visibleBids]);
+
+  const routesByDist = useMemo(
+    () =>
+      [...nodes].sort((a, b) => {
+        const da = parseFloat(a.dist);
+        const db = parseFloat(b.dist);
+        if (Number.isNaN(da) && Number.isNaN(db)) return 0;
+        if (Number.isNaN(da)) return 1;
+        if (Number.isNaN(db)) return -1;
+        return da - db;
+      }),
+    [nodes]
   );
 
   return (
@@ -202,12 +347,12 @@ export function ProjectMap() {
           </g>
 
           {/* Routes + nodes */}
-          {MAP_NODES.map((n) => {
+          {nodes.map((n) => {
             const st = MAP_STATUS[n.status];
             const mx = (HUB.x + n.x) / 2;
             const dx = n.x - HUB.x;
             const dy = n.y - HUB.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
             const curve = Math.min(len * 0.15, 40);
             const perpX = (-dy / len) * curve;
             const perpY = (dx / len) * curve;
@@ -220,6 +365,8 @@ export function ProjectMap() {
             const ty1 = n.below ? 28 : -14;
             const ty2 = n.below ? 42 : 0;
             const ty3 = n.below ? 56 : 14;
+
+            const targetBid = bidByNodeId.get(n.id);
 
             return (
               <g key={n.id}>
@@ -281,11 +428,36 @@ export function ProjectMap() {
                   >
                     {n.dist} · {n.val}
                   </text>
+                  {targetBid && (
+                    <a href={`/bids/${targetBid.id}`} aria-label={`Open ${n.name}`}>
+                      <circle r="14" fill="transparent" style={{ cursor: 'pointer' }} />
+                    </a>
+                  )}
                 </g>
               </g>
             );
           })}
+
+          {!loading && nodes.length === 0 && (
+            <text
+              x="500"
+              y="650"
+              textAnchor="middle"
+              fontFamily="var(--font-sans)"
+              fontSize="13"
+              fill="rgba(255,255,255,0.4)"
+            >
+              No active bids yet — create one to see it on the map.
+            </text>
+          )}
         </svg>
+
+        {loading && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-white/50">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading bids…
+          </div>
+        )}
 
         {/* Bottom overlay */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-t from-[#04151E]/90 to-transparent px-6 pb-4 pt-8 text-[11px] text-white/60">
@@ -315,10 +487,26 @@ export function ProjectMap() {
       <div className="flex flex-col gap-4">
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-surface p-3">
-          <MapStat label="Active routes" value="6" color="var(--color-success-500)" />
-          <MapStat label="Avg distance" value="34" unit="mi" color="var(--color-blue-500)" />
-          <MapStat label="Total pipeline" value="$8.6" unit="M" />
-          <MapStat label="Farthest bid" value="89" unit="mi" />
+          <MapStat
+            label="Total bids"
+            value={String(stats.total)}
+            color="var(--color-blue-500)"
+          />
+          <MapStat
+            label="Active routes"
+            value={String(stats.active)}
+            color="var(--color-success-500)"
+          />
+          <MapStat
+            label="Avg distance"
+            value={stats.avg ? String(stats.avg) : '—'}
+            unit={stats.avg ? 'mi' : undefined}
+          />
+          <MapStat
+            label="Farthest bid"
+            value={stats.farthest ? String(stats.farthest) : '—'}
+            unit={stats.farthest ? 'mi' : undefined}
+          />
         </div>
 
         {/* Routes list */}
@@ -326,38 +514,61 @@ export function ProjectMap() {
           <div className="border-b border-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-muted">
             Routes — By Distance
           </div>
-          <div className="divide-y divide-border">
-            {routesByDist.map((n, i) => {
-              const st = MAP_STATUS[n.status];
-              return (
-                <div key={n.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-sunken font-mono text-[10.5px] font-semibold text-fg-muted">
-                    {String(i + 1).padStart(2, '0')}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold text-fg-default">
-                      {n.name}
+          {routesByDist.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[12px] text-fg-subtle">
+              No bids yet — create one to populate the map.
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {routesByDist.map((n, i) => {
+                const st = MAP_STATUS[n.status];
+                const targetBid = bidByNodeId.get(n.id);
+                const inner = (
+                  <>
+                    <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-sunken font-mono text-[10.5px] font-semibold text-fg-muted">
+                      {String(i + 1).padStart(2, '0')}
                     </div>
-                    <div className="truncate font-mono text-[10.5px] text-fg-subtle">
-                      BOS → {n.id}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-fg-default">
+                        {n.name}
+                      </div>
+                      <div className="truncate font-mono text-[10.5px] text-fg-subtle">
+                        BOS → {n.id}
+                      </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{
+                          background: st.color,
+                          boxShadow: `0 0 8px ${st.color}`,
+                        }}
+                      />
+                      <span className="font-mono text-[11px] font-semibold text-fg-default">
+                        {n.dist}
+                      </span>
+                    </div>
+                  </>
+                );
+                if (targetBid) {
+                  return (
+                    <Link
+                      key={n.id}
+                      href={`/bids/${targetBid.id}`}
+                      className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-sunken/60"
+                    >
+                      {inner}
+                    </Link>
+                  );
+                }
+                return (
+                  <div key={n.id} className="flex items-center gap-3 px-4 py-2.5">
+                    {inner}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{
-                        background: st.color,
-                        boxShadow: `0 0 8px ${st.color}`,
-                      }}
-                    />
-                    <span className="font-mono text-[11px] font-semibold text-fg-default">
-                      {n.dist}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Callout */}
@@ -366,7 +577,15 @@ export function ProjectMap() {
             100-mile Radius Rule
           </div>
           <div className="mt-2 text-[12.5px] leading-relaxed text-navy-800">
-            All active bids within operational range. <strong>2 bids</strong> approaching the 100-mile threshold — requires senior review before qualification.
+            {stats.overThreshold > 0 ? (
+              <>
+                <strong>{stats.overThreshold}</strong>{' '}
+                bid{stats.overThreshold === 1 ? '' : 's'} exceed the 100-mile
+                threshold — review before qualification.
+              </>
+            ) : (
+              <>All active bids are within operational range.</>
+            )}
           </div>
         </div>
       </div>

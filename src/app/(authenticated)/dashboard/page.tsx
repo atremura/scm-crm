@@ -54,6 +54,7 @@ const ACTIVITY_COLOR: Record<Activity['tone'], string> = {
 
 export default function DashboardPage() {
   const [tab, setTab] = useState<'overview' | 'map'>('overview');
+  const [activeBidCount, setActiveBidCount] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('jmoDashTab');
@@ -63,6 +64,20 @@ export default function DashboardPage() {
   useEffect(() => {
     localStorage.setItem('jmoDashTab', tab);
   }, [tab]);
+
+  useEffect(() => {
+    fetch('/api/bids')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((bids) => {
+        if (Array.isArray(bids)) {
+          const active = bids.filter(
+            (b: { status: string }) => !['rejected', 'lost'].includes(b.status)
+          ).length;
+          setActiveBidCount(active);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-[1440px] space-y-5 p-6 md:p-8">
@@ -97,13 +112,15 @@ export default function DashboardPage() {
         <TabButton active={tab === 'map'} onClick={() => setTab('map')}>
           <MapPin className="h-3.5 w-3.5" />
           Project Map
-          <span
-            className={`ml-1 rounded-full px-1.5 text-[10.5px] font-semibold ${
-              tab === 'map' ? 'bg-blue-500 text-white' : 'bg-ink-200 text-fg-muted'
-            }`}
-          >
-            8
-          </span>
+          {activeBidCount !== null && (
+            <span
+              className={`ml-1 rounded-full px-1.5 text-[10.5px] font-semibold ${
+                tab === 'map' ? 'bg-blue-500 text-white' : 'bg-ink-200 text-fg-muted'
+              }`}
+            >
+              {activeBidCount}
+            </span>
+          )}
         </TabButton>
       </div>
 
