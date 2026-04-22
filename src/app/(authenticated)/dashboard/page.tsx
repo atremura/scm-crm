@@ -19,16 +19,47 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { PipelineChart } from '@/components/dashboard/pipeline-chart';
 import { ProjectMap } from '@/components/dashboard/project-map';
 import {
-  KPIS,
-  BID_FUNNEL,
-  REVENUE_SERIES,
   AI_INSIGHTS,
-  RECENT_ACTIVITY,
   TASKS,
   type Task,
   type AiInsight,
-  type Activity,
+  type Kpi,
+  type FunnelStage,
+  type RevenuePoint,
+  type ActivityTone,
 } from '@/lib/dashboard-mock';
+
+type DashboardData = {
+  kpis: {
+    active: number;
+    winRate: number | null;
+    avgDistance: number | null;
+    newThisWeek: number;
+    dueThisWeek: number;
+    won: number;
+    lost: number;
+    total: number;
+    terminalCount: number;
+  };
+  funnel: Array<{ stage: string; status: string; count: number }>;
+  series: Array<{ m: string; bids: number; won: number }>;
+  activity: Array<{
+    id: string;
+    who: string;
+    what: string;
+    when: string;
+    bidId: string;
+    bidNumber: string;
+    projectName: string;
+    tone: ActivityTone;
+  }>;
+};
+
+const FUNNEL_COLORS: Record<string, string> = {
+  new: 'var(--color-ink-400)',
+  qualified: 'var(--color-blue-500)',
+  sent_to_takeoff: 'var(--color-success-500)',
+};
 
 const AI_ICON: Record<AiInsight['icon'], React.ComponentType<{ className?: string }>> = {
   Zap,
@@ -45,16 +76,40 @@ const AI_TONE: Record<
   info: { bg: 'bg-blue-100', fg: 'text-blue-700' },
 };
 
-const ACTIVITY_COLOR: Record<Activity['tone'], string> = {
+const ACTIVITY_COLOR: Record<ActivityTone, string> = {
   blue: 'bg-blue-500',
   navy: 'bg-navy-800',
   green: 'bg-success-500',
   amber: 'bg-warn-500',
 };
 
+function loadingKpi(label: string): Kpi {
+  return { label, value: '…', delta: '', up: true, sub: 'loading' };
+}
+
+function funnelRow(stage: string, count: number, status: string): FunnelStage {
+  return {
+    stage,
+    count,
+    value: count,
+    color: FUNNEL_COLORS[status] ?? 'var(--color-blue-500)',
+  };
+}
+
+function timeAgo(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  const days = Math.floor(diff / 86400);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d`;
+  return `${Math.floor(days / 7)}w`;
+}
+
 export default function DashboardPage() {
   const [tab, setTab] = useState<'overview' | 'map'>('overview');
-  const [activeBidCount, setActiveBidCount] = useState<number | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('jmoDashTab');
@@ -66,18 +121,15 @@ export default function DashboardPage() {
   }, [tab]);
 
   useEffect(() => {
-    fetch('/api/bids')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((bids) => {
-        if (Array.isArray(bids)) {
-          const active = bids.filter(
-            (b: { status: string }) => !['rejected', 'lost'].includes(b.status)
-          ).length;
-          setActiveBidCount(active);
-        }
+    fetch('/api/dashboard')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.kpis) setData(d as DashboardData);
       })
       .catch(() => {});
   }, []);
+
+  const activeBidCount = data?.kpis.active ?? null;
 
   return (
     <div className="mx-auto w-full max-w-[1440px] space-y-5 p-6 md:p-8">
@@ -124,7 +176,7 @@ export default function DashboardPage() {
         </TabButton>
       </div>
 
-      {tab === 'map' ? <ProjectMap /> : <Overview />}
+      {tab === 'map' ? <ProjectMap /> : <Overview data={data} />}
     </div>
   );
 }
@@ -153,12 +205,85 @@ function TabButton({
   );
 }
 
-function Overview() {
+function Overview({ data }: { data: DashboardData | null }) {
+  // Build KPI cards from real data when available
+  const kpis: Kpi[] = data
+    ? [
+        {
+          label: 'Active Bids',
+          value: String(data.kpis.active),
+          delta: `${data.kpis.terminalCount} closed`,
+          up: true,
+          sub: `of ${data.kpis.total} total`,
+        },
+        {
+          label: 'Win Rate',
+          value: data.kpis.winRate !== null ? `${data.kpis.winRate}%` : '—',
+          delta:
+            data.kpis.won + data.kpis.lost > 0
+              ? `${data.kpis.won}W / ${data.kpis.lost}L`
+              : 'no data',
+          up: (data.kpis.winRate ?? 0) >= 50,
+          sub: 'won vs lost',
+        },
+        {
+          label: 'Avg. Distance',
+          value:
+            data.kpis.avgDistance !== null
+              ? `${data.kpis.avgDistance} mi`
+              : '—',
+          delta: 'from base',
+          up: true,
+          sub: 'across geocoded bids',
+        },
+        {
+          label: 'Due This Week',
+          value: String(data.kpis.dueThisWeek),
+          delta: `+${data.kpis.newThisWeek} new`,
+          up: true,
+          sub: 'next 7 days',
+        },
+      ]
+    : [
+        loadingKpi('Active Bids'),
+        loadingKpi('Win Rate'),
+        loadingKpi('Avg. Distance'),
+        loadingKpi('Due This Week'),
+      ];
+
+  // Funnel: dedupe so qualified doesn't show twice (the API returns it as
+  // both "Reviewing" and "Qualified" — for this UI we collapse to a single
+  // "Qualified" stage using the qualified count).
+  const funnelStages: FunnelStage[] = data
+    ? [
+        funnelRow('New', data.funnel.find((f) => f.status === 'new')?.count ?? 0, 'new'),
+        funnelRow(
+          'Qualified',
+          data.funnel.find((f) => f.status === 'qualified')?.count ?? 0,
+          'qualified'
+        ),
+        funnelRow(
+          'Sent to Takeoff',
+          data.funnel.find((f) => f.status === 'sent_to_takeoff')?.count ?? 0,
+          'sent_to_takeoff'
+        ),
+      ]
+    : [];
+
+  // Series for the chart — pass real series, or zeros while loading
+  const series: RevenuePoint[] = data
+    ? data.series.map((s) => ({ m: s.m, bids: s.bids, won: s.won, value: 0 }))
+    : [
+        { m: '—', bids: 0, won: 0, value: 0 },
+      ];
+
+  const activity = data?.activity ?? [];
+
   return (
     <>
       {/* KPI row */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {KPIS.map((k) => (
+        {kpis.map((k) => (
           <KpiCard key={k.label} kpi={k} />
         ))}
       </div>
@@ -182,7 +307,7 @@ function Overview() {
             </div>
           </div>
           <div className="p-5">
-            <PipelineChart data={REVENUE_SERIES} />
+            <PipelineChart data={series} />
           </div>
         </Card>
 
@@ -249,29 +374,35 @@ function Overview() {
           </div>
           <div className="p-5">
             <div className="flex flex-col gap-3.5">
-              {BID_FUNNEL.map((f) => {
-                const max = Math.max(...BID_FUNNEL.map((x) => x.value));
-                const pct = (f.value / max) * 100;
-                return (
-                  <div key={f.stage}>
-                    <div className="mb-1.5 flex items-center justify-between text-[13px]">
-                      <span className="font-semibold text-fg-default">{f.stage}</span>
-                      <span className="text-fg-muted">
-                        {f.count} bids ·{' '}
+              {funnelStages.length === 0 ? (
+                <div className="text-[12.5px] text-fg-subtle">Loading…</div>
+              ) : (
+                funnelStages.map((f) => {
+                  const max = Math.max(1, ...funnelStages.map((x) => x.count));
+                  const pct = (f.count / max) * 100;
+                  return (
+                    <div key={f.stage}>
+                      <div className="mb-1.5 flex items-center justify-between text-[13px]">
                         <span className="font-semibold text-fg-default">
-                          ${(f.value / 1000).toFixed(0)}k
+                          {f.stage}
                         </span>
-                      </span>
+                        <span className="text-fg-muted">
+                          <span className="font-semibold text-fg-default">
+                            {f.count}
+                          </span>{' '}
+                          bid{f.count === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-sunken">
+                        <div
+                          className="h-full rounded-full transition-[width] duration-500"
+                          style={{ width: `${pct}%`, background: f.color }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-sunken">
-                      <div
-                        className="h-full rounded-full transition-[width] duration-500"
-                        style={{ width: `${pct}%`, background: f.color }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </Card>
@@ -295,22 +426,28 @@ function Overview() {
             <h3 className="text-[14.5px] font-semibold text-fg-default">Recent Activity</h3>
           </div>
           <div className="p-5">
-            <ol className="relative ml-3 border-l border-border">
-              {RECENT_ACTIVITY.map((a, i) => (
-                <li key={i} className="mb-4 pl-4 last:mb-0">
-                  <span
-                    className={`absolute -left-[5px] h-2.5 w-2.5 rounded-full ring-2 ring-surface ${ACTIVITY_COLOR[a.tone]}`}
-                  />
-                  <div className="flex items-center justify-between text-[12.5px]">
-                    <span className="font-semibold text-fg-default">{a.who}</span>
-                    <span className="text-fg-subtle">{a.when}</span>
-                  </div>
-                  <div className="mt-0.5 text-[12.5px] leading-relaxed text-fg-muted">
-                    {a.what}
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {activity.length === 0 ? (
+              <div className="text-center text-[12.5px] text-fg-subtle">
+                No activity yet
+              </div>
+            ) : (
+              <ol className="relative ml-3 border-l border-border">
+                {activity.map((a) => (
+                  <li key={a.id} className="mb-4 pl-4 last:mb-0">
+                    <span
+                      className={`absolute -left-[5px] h-2.5 w-2.5 rounded-full ring-2 ring-surface ${ACTIVITY_COLOR[a.tone]}`}
+                    />
+                    <div className="flex items-center justify-between text-[12.5px]">
+                      <span className="font-semibold text-fg-default">{a.who}</span>
+                      <span className="text-fg-subtle">{timeAgo(a.when)}</span>
+                    </div>
+                    <div className="mt-0.5 text-[12.5px] leading-relaxed text-fg-muted">
+                      {a.what}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
         </Card>
       </div>

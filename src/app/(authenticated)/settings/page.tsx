@@ -1,0 +1,417 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Building2,
+  MapPin,
+  Sliders,
+  Sparkles,
+  Save,
+  Loader2,
+  Plus,
+  X,
+  Locate,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+
+type Settings = Record<string, string>;
+
+const DEFAULTS: Settings = {
+  company_name: 'JMO GROUP Carpentry',
+  company_website: 'jmogroup.com',
+  base_address: 'Boston, MA',
+  base_latitude: '42.3601',
+  base_longitude: '-71.0589',
+  max_distance_miles: '100',
+  preferred_work_types: 'Finish Carpentry, Siding, Sheet Metal',
+  ai_auto_analyze: 'true',
+};
+
+export default function SettingsPage() {
+  const [settings, setSettings] = useState<Settings>({});
+  const [original, setOriginal] = useState<Settings>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) throw new Error('Failed to load settings');
+      const data = await res.json();
+      const merged = { ...DEFAULTS, ...(data.settings ?? {}) };
+      setSettings(merged);
+      setOriginal(merged);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function update(key: string, value: string) {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const dirty = useMemo(
+    () => Object.keys(settings).some((k) => settings[k] !== original[k]),
+    [settings, original]
+  );
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save');
+      toast.success('Settings saved');
+      const merged = { ...DEFAULTS, ...(data.settings ?? {}) };
+      setSettings(merged);
+      setOriginal(merged);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function geocodeBase() {
+    if (!settings.base_address?.trim()) {
+      toast.error('Enter a base address first');
+      return;
+    }
+    setGeocoding(true);
+    try {
+      const params = new URLSearchParams({
+        q: settings.base_address,
+        format: 'json',
+        limit: '1',
+        countrycodes: 'us',
+      });
+      // Hit Nominatim through our own API would be cleaner, but for a one-off
+      // settings utility we go direct (browser-side, with tiny rate).
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        toast.error("Couldn't find that address");
+        return;
+      }
+      const lat = parseFloat(data[0].lat);
+      const lng = parseFloat(data[0].lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        toast.error('Invalid geocode result');
+        return;
+      }
+      setSettings((prev) => ({
+        ...prev,
+        base_latitude: lat.toFixed(4),
+        base_longitude: lng.toFixed(4),
+      }));
+      toast.success(`Resolved to ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    } catch (err: any) {
+      toast.error(err.message ?? 'Geocoding failed');
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  // Work types editor — comma-separated string ↔ chip array
+  const workTypes = (settings.preferred_work_types ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  function setWorkTypes(arr: string[]) {
+    update('preferred_work_types', arr.join(', '));
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex max-w-[1440px] items-center justify-center p-12 text-fg-muted">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading settings…
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-[1100px] space-y-5 p-6 md:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <h1 className="text-[24px] font-bold leading-tight tracking-[-0.02em] text-fg-default">
+            Settings
+          </h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            Tune the rules the CRM uses for distance, AI analysis, and company
+            defaults.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {dirty && (
+            <span className="text-[12px] text-warn-500">Unsaved changes</span>
+          )}
+          <Button onClick={save} disabled={!dirty || saving}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {saving ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Company */}
+      <Section
+        icon={<Building2 className="h-4 w-4" />}
+        title="Company"
+        description="Brand name and website used in proposals and emails"
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Company name">
+            <Input
+              value={settings.company_name ?? ''}
+              onChange={(e) => update('company_name', e.target.value)}
+            />
+          </FormField>
+          <FormField label="Website">
+            <Input
+              value={settings.company_website ?? ''}
+              onChange={(e) => update('company_website', e.target.value)}
+              placeholder="example.com"
+            />
+          </FormField>
+        </div>
+      </Section>
+
+      {/* Base location */}
+      <Section
+        icon={<MapPin className="h-4 w-4" />}
+        title="Base location"
+        description="Reference point for distance calculations on every bid"
+      >
+        <div className="space-y-4">
+          <FormField label="Base address">
+            <div className="flex gap-2">
+              <Input
+                value={settings.base_address ?? ''}
+                onChange={(e) => update('base_address', e.target.value)}
+                placeholder="Boston, MA"
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={geocodeBase}
+                disabled={geocoding}
+                title="Resolve address to lat/lng via OpenStreetMap"
+              >
+                {geocoding ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Locate className="h-3.5 w-3.5" />
+                )}
+                Resolve
+              </Button>
+            </div>
+          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Latitude">
+              <Input
+                value={settings.base_latitude ?? ''}
+                onChange={(e) => update('base_latitude', e.target.value)}
+                placeholder="42.3601"
+              />
+            </FormField>
+            <FormField label="Longitude">
+              <Input
+                value={settings.base_longitude ?? ''}
+                onChange={(e) => update('base_longitude', e.target.value)}
+                placeholder="-71.0589"
+              />
+            </FormField>
+          </div>
+          <p className="text-[11.5px] text-fg-muted">
+            Bids are auto-rejected when the project address is farther than the
+            threshold below.
+          </p>
+        </div>
+      </Section>
+
+      {/* Bid rules */}
+      <Section
+        icon={<Sliders className="h-4 w-4" />}
+        title="Bid rules"
+        description="Distance threshold and preferred work types"
+      >
+        <div className="space-y-5">
+          <FormField label={`Maximum distance from base — currently ${settings.max_distance_miles ?? '0'} mi`}>
+            <input
+              type="range"
+              min={10}
+              max={500}
+              step={5}
+              value={settings.max_distance_miles ?? '100'}
+              onChange={(e) => update('max_distance_miles', e.target.value)}
+              className="w-full cursor-pointer accent-blue-500"
+            />
+            <div className="mt-1 flex items-center justify-between text-[10.5px] text-fg-subtle">
+              <span>10 mi</span>
+              <span>500 mi</span>
+            </div>
+          </FormField>
+
+          <FormField
+            label="Preferred work types"
+            help="The AI prioritises bids matching these. Press Enter to add."
+          >
+            <WorkTypeEditor types={workTypes} onChange={setWorkTypes} />
+          </FormField>
+        </div>
+      </Section>
+
+      {/* AI */}
+      <Section
+        icon={<Sparkles className="h-4 w-4" />}
+        title="AI Copilot"
+        description="Configure automated analysis on incoming bids"
+      >
+        <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-sunken/40 px-4 py-3">
+          <div>
+            <div className="text-[13px] font-semibold text-fg-default">
+              Auto-analyze new bids
+            </div>
+            <div className="mt-0.5 text-[11.5px] text-fg-muted">
+              When enabled, every new bid runs through the AI for a match score
+              and a recommendation as soon as it arrives.
+            </div>
+          </div>
+          <Switch
+            checked={settings.ai_auto_analyze === 'true'}
+            onCheckedChange={(v) => update('ai_auto_analyze', v ? 'true' : 'false')}
+          />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function Section({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-surface">
+      <header className="flex items-center gap-3 border-b border-border px-5 py-4">
+        <div className="grid h-7 w-7 place-items-center rounded-md bg-blue-500/10 text-blue-500">
+          {icon}
+        </div>
+        <div>
+          <h2 className="text-[14.5px] font-semibold text-fg-default">{title}</h2>
+          <p className="mt-0.5 text-[12px] text-fg-muted">{description}</p>
+        </div>
+      </header>
+      <div className="px-5 py-4">{children}</div>
+    </section>
+  );
+}
+
+function FormField({
+  label,
+  help,
+  children,
+}: {
+  label: string;
+  help?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[12.5px] font-semibold text-fg-default">{label}</Label>
+      {children}
+      {help && <p className="text-[11px] text-fg-muted">{help}</p>}
+    </div>
+  );
+}
+
+function WorkTypeEditor({
+  types,
+  onChange,
+}: {
+  types: string[];
+  onChange: (types: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  function add() {
+    const t = draft.trim();
+    if (!t) return;
+    if (types.some((x) => x.toLowerCase() === t.toLowerCase())) {
+      toast.error(`"${t}" already added`);
+      return;
+    }
+    onChange([...types, t]);
+    setDraft('');
+  }
+
+  function remove(t: string) {
+    onChange(types.filter((x) => x !== t));
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {types.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-2.5 py-1 text-[12px] font-semibold text-blue-500"
+          >
+            {t}
+            <button
+              type="button"
+              onClick={() => remove(t)}
+              className="grid h-4 w-4 place-items-center rounded-full text-blue-500/70 hover:bg-blue-500/20 hover:text-blue-500"
+              aria-label={`Remove ${t}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="e.g. Roofing, Drywall…"
+        />
+        <Button type="button" variant="outline" onClick={add}>
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+}

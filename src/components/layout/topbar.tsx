@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
@@ -21,6 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { AiPanel } from './ai-panel';
+import { CommandPalette } from './command-palette';
 
 type TopbarProps = {
   userName: string;
@@ -66,7 +68,20 @@ function buildCrumbs(pathname: string) {
 export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
   const pathname = usePathname();
   const crumbs = buildCrumbs(pathname);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Global ⌘K / Ctrl+K
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const initials = (userName || 'U')
     .split(' ')
@@ -115,21 +130,19 @@ export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
         })}
       </nav>
 
-      {/* Search */}
+      {/* Search trigger (opens command palette) */}
       <div className="ml-4 hidden max-w-[420px] flex-1 md:block">
-        <div className="relative">
+        <button
+          type="button"
+          onClick={() => setPaletteOpen(true)}
+          className="group relative flex h-[38px] w-full items-center rounded-lg border border-border bg-sunken pl-9 pr-12 text-left text-[13.5px] text-fg-subtle transition-colors hover:border-blue-500/40 hover:text-fg-muted"
+        >
           <Search className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-fg-subtle" />
-          <input
-            type="search"
-            placeholder="Search bids, clients, projects…"
-            onFocus={() => setSearchOpen(true)}
-            onBlur={() => setSearchOpen(false)}
-            className="h-[38px] w-full rounded-lg border border-border bg-sunken pl-9 pr-12 text-[13.5px] text-fg-default placeholder:text-fg-subtle transition-colors focus:border-blue-500 focus:bg-surface focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-          />
-          <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-fg-subtle">
+          Search bids, clients, projects…
+          <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10.5px] text-fg-subtle">
             ⌘K
           </kbd>
-        </div>
+        </button>
       </div>
 
       {/* Right actions */}
@@ -137,7 +150,8 @@ export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
         {/* Ask AI */}
         <button
           type="button"
-          title="Ask JMO Copilot (coming soon)"
+          onClick={() => setAiOpen(true)}
+          title="Open JMO Copilot"
           className="inline-flex h-[38px] items-center gap-1.5 rounded-lg bg-blue-500/15 px-3 text-[12.5px] font-semibold text-blue-500 transition-colors hover:bg-blue-500/25"
         >
           <Sparkles className="h-3.5 w-3.5" />
@@ -197,6 +211,16 @@ export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onAskAi={() => {
+          setPaletteOpen(false);
+          setAiOpen(true);
+        }}
+      />
+      <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} />
     </header>
   );
 }
