@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Download,
@@ -8,6 +8,8 @@ import {
   Trash2,
   PanelRightClose,
   PanelRightOpen,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ClassificationsSidebar } from '@/components/takeoff/classifications-sidebar';
@@ -42,14 +44,44 @@ export function PdfViewerPane({
   onClassificationsChange,
 }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Default to fullscreen — the whole point of the viewer is to give the
+  // estimator room. User can toggle back to inline to see the rest of the
+  // app chrome (sidebar nav, etc).
+  const [fullscreen, setFullscreen] = useState(true);
+
+  // When fullscreen we overlay everything including the app shell. Prevent
+  // the page underneath from scrolling while the viewer owns the viewport.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [fullscreen]);
+
+  // Esc exits fullscreen (but doesn't close the viewer — explicit Back for that).
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
   const ext = (fileType ?? fileName.split('.').pop() ?? '').toLowerCase();
   const isPdf = ext === 'pdf';
   const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext);
   const canEmbed = isPdf || isImage;
   const showSidebar = !!projectId && sidebarOpen;
 
+  const containerCls = fullscreen
+    ? 'fixed inset-0 z-50 flex flex-col overflow-hidden bg-app'
+    : 'flex h-[calc(100vh-220px)] min-h-[520px] flex-col overflow-hidden rounded-lg border border-border bg-surface';
+
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[520px] flex-col overflow-hidden rounded-lg border border-border bg-surface">
+    <div className={containerCls}>
       {/* Header */}
       <div className="flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -95,6 +127,7 @@ export function PdfViewerPane({
               size="sm"
               onClick={() => setSidebarOpen((v) => !v)}
               aria-label={sidebarOpen ? 'Hide classifications' : 'Show classifications'}
+              title={sidebarOpen ? 'Hide classifications' : 'Show classifications'}
             >
               {sidebarOpen ? (
                 <PanelRightClose className="h-3.5 w-3.5" />
@@ -103,6 +136,19 @@ export function PdfViewerPane({
               )}
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFullscreen((v) => !v)}
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            title={fullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+          >
+            {fullscreen ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
       </div>
 
@@ -140,7 +186,7 @@ export function PdfViewerPane({
         </div>
 
         {showSidebar && (
-          <div className="w-[320px] shrink-0">
+          <div className="w-[340px] shrink-0">
             <ClassificationsSidebar
               projectId={projectId!}
               onChange={onClassificationsChange}
