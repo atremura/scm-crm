@@ -4,11 +4,13 @@ import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justRegistered = searchParams.get('registered') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -110,11 +112,17 @@ export default function LoginPage() {
           </div>
 
           <h2 className="text-[26px] font-bold leading-tight tracking-[-0.02em] text-fg-default">
-            Sign in to JMO CRM
+            Sign in to SCM
           </h2>
           <p className="mt-1.5 text-[14px] text-fg-muted">
-            Use your JMO GROUP Carpentry account to continue.
+            Sign in to manage your construction projects.
           </p>
+
+          {justRegistered && (
+            <div className="mt-5 rounded-md border border-success-500/30 bg-success-500/10 px-3 py-2.5 text-[12.5px] text-success-500">
+              Account created! Please log in with your new credentials.
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="mt-7 flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
@@ -126,7 +134,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@jmogroup.com"
+                placeholder="you@company.com"
                 autoComplete="email"
                 required
                 disabled={loading}
@@ -212,9 +220,9 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-6 text-center text-[13px] text-fg-muted">
-            Don&apos;t have access yet?{' '}
-            <Link href="#" className="font-semibold text-blue-400 hover:underline">
-              Request an invite
+            Don&apos;t have an account?{' '}
+            <Link href="/register" className="font-semibold text-blue-400 hover:underline">
+              Create one
             </Link>
           </p>
         </div>

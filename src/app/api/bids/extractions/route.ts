@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const extractions = await prisma.bidExtraction.findMany({
-      where: { status },
+      where: { status, companyId: ctx.companyId },
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: {

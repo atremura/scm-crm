@@ -34,7 +34,9 @@ export async function POST(
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  const bid = await prisma.bid.findUnique({ where: { id } });
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
 
   const from = bid.status as BidStatus;

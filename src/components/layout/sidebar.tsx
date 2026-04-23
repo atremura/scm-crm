@@ -62,9 +62,10 @@ const navigation: NavGroup[] = [
 type SidebarProps = {
   userName: string;
   userRole: string;
+  companyName: string;
 };
 
-export function Sidebar({ userName, userRole }: SidebarProps) {
+export function Sidebar({ userName, userRole, companyName }: SidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -84,21 +85,27 @@ export function Sidebar({ userName, userRole }: SidebarProps) {
     >
       {/* Brand */}
       <div
-        className={`flex items-center border-b border-white/[0.06] ${
-          collapsed ? 'justify-center px-2 py-[18px]' : 'px-4 py-[18px]'
+        className={`flex flex-col items-start border-b border-white/[0.06] ${
+          collapsed ? 'items-center justify-center px-2 py-[18px]' : 'px-4 py-[14px]'
         } min-h-[72px]`}
+        title={companyName}
       >
         <div className="relative flex items-center">
           <Image
             src="/brand/jmo-logo-white.png"
-            alt="JMO Group"
+            alt={companyName}
             width={170}
             height={66}
             priority
             style={{ height: 'auto' }}
-            className={collapsed ? 'w-9' : 'w-[170px]'}
+            className={collapsed ? 'w-9' : 'w-[140px]'}
           />
         </div>
+        {!collapsed && (
+          <div className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-white/50 truncate max-w-full">
+            {companyName}
+          </div>
+        )}
       </div>
 
       {/* Nav */}

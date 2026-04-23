@@ -6,7 +6,7 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow these paths to pass through without checks
-  const publicPaths = ['/login', '/api/auth'];
+  const publicPaths = ['/login', '/register', '/api/auth', '/api/register'];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   // Skip middleware for public paths

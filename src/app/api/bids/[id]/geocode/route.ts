@@ -15,8 +15,8 @@ export async function POST(
   }
 
   const { id } = await params;
-  const bid = await prisma.bid.findUnique({
-    where: { id },
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
     select: { id: true, projectAddress: true },
   });
   if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });

@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status'); // 'active' | 'inactive' | 'all'
   const type = searchParams.get('type');
 
-  const where: any = {};
+  const where: any = { companyId: ctx.companyId };
   if (status === 'inactive') where.isActive = false;
   else if (status === 'all') {
     // no filter
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
   try {
     const client = await prisma.client.create({
       data: {
+        companyId: ctx.companyId,
         companyName: parsed.companyName,
         type: parsed.type ?? null,
         address: parsed.address ?? null,

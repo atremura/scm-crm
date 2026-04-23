@@ -8,20 +8,34 @@ export type AuthContext = {
   email: string;
   name: string;
   role: string;
+  companyId: string;
+  companyName: string;
 };
 
 /**
- * Returns the authenticated user or null.
+ * Returns the authenticated user or null. AuthContext carries companyId so
+ * API handlers can scope every query to the current tenant without a
+ * separate round-trip to the session.
  */
 export async function requireAuth(): Promise<AuthContext | null> {
   const session = await auth();
   if (!session?.user) return null;
-  const u = session.user as { id: string; email: string; name: string; role: string };
+  const u = session.user as {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    companyId?: string;
+    companyName?: string;
+  };
+  if (!u.companyId) return null;
   return {
     userId: u.id,
     email: u.email,
     name: u.name,
     role: u.role,
+    companyId: u.companyId,
+    companyName: u.companyName ?? '',
   };
 }
 

@@ -32,10 +32,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  // Pull contextual settings to help the model resolve relative dates and infer work type
-  const [preferredRow, baseRow] = await Promise.all([
-    prisma.systemSetting.findUnique({ where: { key: 'preferred_work_types' } }),
-    prisma.systemSetting.findUnique({ where: { key: 'base_address' } }),
+  // Pull contextual settings to help the model resolve relative dates and infer work type.
+  // Settings are scoped per company; base_address also lives on Company.
+  const [preferredRow, company] = await Promise.all([
+    prisma.systemSetting.findUnique({
+      where: { companyId_key: { companyId: ctx.companyId, key: 'preferred_work_types' } },
+    }),
+    prisma.company.findUnique({
+      where: { id: ctx.companyId },
+      select: { baseAddress: true },
+    }),
   ]);
 
   const userMessage = buildUserMessage({
@@ -43,7 +49,7 @@ export async function POST(req: NextRequest) {
     subject: parsed.subject ?? null,
     fromAddress: parsed.fromAddress ?? null,
     preferredWorkTypes: preferredRow?.value ?? null,
-    baseLocation: baseRow?.value ?? null,
+    baseLocation: company?.baseAddress ?? null,
     receivedDate: new Date().toISOString().slice(0, 10),
   });
 
@@ -102,6 +108,7 @@ export async function POST(req: NextRequest) {
   try {
     const record = await prisma.bidExtraction.create({
       data: {
+        companyId: ctx.companyId,
         rawEmail: parsed.rawEmail,
         emailSubject: parsed.subject ?? null,
         fromAddress: parsed.fromAddress ?? null,

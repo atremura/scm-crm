@@ -35,8 +35,8 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const client = await prisma.client.findUnique({
-      where: { id },
+    const client = await prisma.client.findFirst({
+      where: { id, companyId: ctx.companyId },
       include: {
         contacts: { orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }] },
         bids: {
@@ -83,7 +83,9 @@ export async function PATCH(
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  const existing = await prisma.client.findUnique({ where: { id } });
+  const existing = await prisma.client.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!existing) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
 
   const { contacts, ...clientFields } = parsed;
@@ -151,8 +153,8 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const existing = await prisma.client.findUnique({
-    where: { id },
+  const existing = await prisma.client.findFirst({
+    where: { id, companyId: ctx.companyId },
     include: { _count: { select: { bids: true } } },
   });
   if (!existing) return NextResponse.json({ error: 'Client not found' }, { status: 404 });

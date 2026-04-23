@@ -22,6 +22,7 @@ export async function GET() {
   try {
     const [bids, statusGroups, recentHistory] = await Promise.all([
       prisma.bid.findMany({
+        where: { companyId: ctx.companyId },
         select: {
           id: true,
           status: true,
@@ -32,9 +33,11 @@ export async function GET() {
       }),
       prisma.bid.groupBy({
         by: ['status'],
+        where: { companyId: ctx.companyId },
         _count: { _all: true },
       }),
       prisma.bidStatusHistory.findMany({
+        where: { bid: { companyId: ctx.companyId } },
         orderBy: { changedAt: 'desc' },
         take: 8,
         include: {

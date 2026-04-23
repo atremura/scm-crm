@@ -13,7 +13,11 @@ export default async function AuthenticatedLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-app">
-      <Sidebar userName={user?.name ?? 'User'} userRole={user?.role ?? ''} />
+      <Sidebar
+        userName={user?.name ?? 'User'}
+        userRole={user?.role ?? ''}
+        companyName={user?.companyName ?? 'SCM'}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar
           userName={user?.name ?? 'User'}

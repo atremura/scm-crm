@@ -35,8 +35,8 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const bid = await prisma.bid.findUnique({
-      where: { id },
+    const bid = await prisma.bid.findFirst({
+      where: { id, companyId: ctx.companyId },
       include: {
         client: { include: { contacts: true } },
         assignedUser: { select: { id: true, name: true, email: true } },
@@ -78,8 +78,20 @@ export async function PATCH(
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  const existing = await prisma.bid.findUnique({ where: { id } });
+  const existing = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!existing) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
+
+  // If client is being changed, verify it belongs to the same company
+  if (parsed.clientId && parsed.clientId !== existing.clientId) {
+    const client = await prisma.client.findFirst({
+      where: { id: parsed.clientId, companyId: ctx.companyId },
+    });
+    if (!client) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 400 });
+    }
+  }
 
   const data: any = { ...parsed };
   if (parsed.receivedDate !== undefined) {
@@ -115,7 +127,9 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const existing = await prisma.bid.findUnique({ where: { id } });
+  const existing = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!existing) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
 
   try {

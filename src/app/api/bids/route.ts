@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   const urgency = searchParams.get('urgency'); // today | week | overdue
   const source = searchParams.get('source');
 
-  const where: any = {};
+  const where: any = { companyId: ctx.companyId };
 
   if (status && status !== 'all') {
     where.status = status;
@@ -114,17 +114,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Verify client exists
-    const client = await prisma.client.findUnique({ where: { id: parsed.clientId } });
+    // Verify client exists and belongs to the same company
+    const client = await prisma.client.findFirst({
+      where: { id: parsed.clientId, companyId: ctx.companyId },
+    });
     if (!client) {
       return NextResponse.json({ error: 'Client not found' }, { status: 400 });
     }
 
     const bid = await prisma.$transaction(async (tx) => {
-      const bidNumber = await generateBidNumber(tx as any);
+      const bidNumber = await generateBidNumber(tx as any, ctx.companyId);
 
       const created = await tx.bid.create({
         data: {
+          companyId: ctx.companyId,
           bidNumber,
           clientId: parsed.clientId,
           projectName: parsed.projectName,

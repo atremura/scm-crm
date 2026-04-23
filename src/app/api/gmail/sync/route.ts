@@ -19,21 +19,30 @@ import { acceptExtractionAsBid } from '@/lib/bid-creator';
 
 const MAX_PER_RUN = 10;
 
-/** Pull auto-capture config from system_settings with sensible defaults. */
-async function loadAutoCaptureSettings(): Promise<AutoCaptureSettings> {
-  const rows = await prisma.systemSetting.findMany({
-    where: {
-      key: {
-        in: [
-          'auto_create_bids',
-          'auto_min_confidence',
-          'auto_allowed_states',
-          'auto_qualified_status',
-          'max_distance_miles',
-        ],
+/**
+ * Pull auto-capture config from system_settings (per company) with sensible defaults.
+ * `max_distance_miles` lives on Company now — not in settings — so we fetch both.
+ */
+async function loadAutoCaptureSettings(companyId: string): Promise<AutoCaptureSettings> {
+  const [rows, company] = await Promise.all([
+    prisma.systemSetting.findMany({
+      where: {
+        companyId,
+        key: {
+          in: [
+            'auto_create_bids',
+            'auto_min_confidence',
+            'auto_allowed_states',
+            'auto_qualified_status',
+          ],
+        },
       },
-    },
-  });
+    }),
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: { maxDistanceMiles: true },
+    }),
+  ]);
   const map: Record<string, string> = {};
   rows.forEach((r) => (map[r.key] = r.value));
   const states = (map.auto_allowed_states ?? 'MA, NH, RI, CT, VT, ME')
@@ -47,7 +56,7 @@ async function loadAutoCaptureSettings(): Promise<AutoCaptureSettings> {
     minConfidence: parseInt(map.auto_min_confidence ?? '70', 10) || 70,
     allowedStates: states,
     qualifiedStatus,
-    maxDistanceMiles: parseInt(map.max_distance_miles ?? '100', 10) || 100,
+    maxDistanceMiles: company?.maxDistanceMiles ?? 100,
   };
 }
 
@@ -108,17 +117,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Skip messages we've already extracted before
-  const existing = await prisma.bidExtraction.findMany({
-    where: { fromAddress: { in: messageRefs.map((m) => m.id) } },
-    select: { fromAddress: true },
-  });
-  // We use fromAddress as a soft "seen" key here. Simpler than a new column;
-  // we tag the extraction's emailSubject with `[Gmail msg <id>]` so we can
-  // also dedupe by subject prefix below.
+  // Dedupe: find messages we've already extracted in this company. The
+  // emailSubject is tagged with `[gmail:<msgId>]` so we can match by prefix.
   const seenIds = new Set<string>();
   const allExtractions = await prisma.bidExtraction.findMany({
     where: {
+      companyId: ctx.companyId,
       emailSubject: { startsWith: '[gmail:' },
       extractedBy: ctx.userId,
     },
@@ -142,14 +146,20 @@ export async function POST(req: NextRequest) {
     skipped?: boolean;
   }> = [];
 
-  // Pull contextual settings once
-  const [preferredRow, baseRow] = await Promise.all([
-    prisma.systemSetting.findUnique({ where: { key: 'preferred_work_types' } }),
-    prisma.systemSetting.findUnique({ where: { key: 'base_address' } }),
+  // Pull contextual settings once — scoped to this company.
+  // `base_address` lives on Company now; `preferred_work_types` is still in settings.
+  const [preferredRow, company] = await Promise.all([
+    prisma.systemSetting.findUnique({
+      where: { companyId_key: { companyId: ctx.companyId, key: 'preferred_work_types' } },
+    }),
+    prisma.company.findUnique({
+      where: { id: ctx.companyId },
+      select: { baseAddress: true },
+    }),
   ]);
 
   // Auto-capture rules — drives whether we auto-create bids or leave for review
-  const autoSettings = await loadAutoCaptureSettings();
+  const autoSettings = await loadAutoCaptureSettings(ctx.companyId);
 
   let created = 0;
   let autoQualified = 0;
@@ -189,7 +199,7 @@ export async function POST(req: NextRequest) {
       subject: parsed.subject,
       fromAddress: parsed.from,
       preferredWorkTypes: preferredRow?.value ?? null,
-      baseLocation: baseRow?.value ?? null,
+      baseLocation: company?.baseAddress ?? null,
       receivedDate: parsed.date
         ? parsed.date.toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10),
@@ -241,6 +251,7 @@ export async function POST(req: NextRequest) {
     try {
       const record = await prisma.bidExtraction.create({
         data: {
+          companyId: ctx.companyId,
           rawEmail: parsed.body,
           // Tag the subject so we can dedupe later
           emailSubject: `[gmail:${ref.id}] ${parsed.subject ?? ''}`.slice(0, 500),
@@ -316,6 +327,7 @@ export async function POST(req: NextRequest) {
           ? autoSettings.qualifiedStatus
           : 'rejected';
       const result = await acceptExtractionAsBid(extractionId, {
+        companyId: ctx.companyId,
         actorUserId: ctx.userId,
         newClient: {
           companyName,

@@ -40,6 +40,8 @@ export type NewClientPayload = {
 };
 
 export type AcceptExtractionOpts = {
+  /** Tenant scope — the extraction, client, and bid all must belong to this company. */
+  companyId: string;
   /** Use this existing client. If unset, must provide newClient. */
   clientId?: string;
   /** Inline-create this client during the same transaction. */
@@ -74,12 +76,21 @@ export async function acceptExtractionAsBid(
   extractionId: string,
   opts: AcceptExtractionOpts
 ): Promise<AcceptResult> {
-  const extraction = await prisma.bidExtraction.findUnique({
-    where: { id: extractionId },
+  const extraction = await prisma.bidExtraction.findFirst({
+    where: { id: extractionId, companyId: opts.companyId },
   });
   if (!extraction) throw new Error('Extraction not found');
   if (extraction.status !== 'pending') {
     throw new Error('Extraction has already been processed');
+  }
+
+  // If caller pinned an existing client, verify it belongs to this tenant.
+  if (opts.clientId) {
+    const existingClient = await prisma.client.findFirst({
+      where: { id: opts.clientId, companyId: opts.companyId },
+      select: { id: true },
+    });
+    if (!existingClient) throw new Error('Client not found');
   }
 
   // Build bid fields — either from explicit overrides (manual review) or from
@@ -111,6 +122,7 @@ export async function acceptExtractionAsBid(
         }
         const client = await tx.client.create({
           data: {
+            companyId: opts.companyId,
             companyName: opts.newClient.companyName,
             type: opts.newClient.type ?? null,
             city: opts.newClient.city ?? null,
@@ -133,9 +145,10 @@ export async function acceptExtractionAsBid(
       }
 
       // 2. Generate the bid number + create the bid
-      const bidNumber = await generateBidNumber(tx as any);
+      const bidNumber = await generateBidNumber(tx as any, opts.companyId);
       const bid = await tx.bid.create({
         data: {
+          companyId: opts.companyId,
           bidNumber,
           clientId,
           projectName: bidFields.projectName,
@@ -185,6 +198,7 @@ export async function acceptExtractionAsBid(
           data: extractedLinks
             .filter((l: any) => l && typeof l.url === 'string' && l.url.startsWith('http'))
             .map((l: any) => ({
+              companyId: opts.companyId,
               bidId: bid.id,
               url: l.url,
               label: l.label ?? null,
