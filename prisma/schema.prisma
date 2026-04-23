@@ -41,6 +41,17 @@ model Company {
   classifications         Classification[]
   takeoffImports          TakeoffImport[]
 
+  // Estimate module reference catalogs
+  divisions               Division[]
+  regions                 Region[]
+  laborTrades             LaborTrade[]
+  laborRates              LaborRate[]
+  productivityEntries     ProductivityEntry[]
+  materials               Material[]
+  materialTypes           MaterialType[]
+  assemblies              Assembly[]
+  costFactors             CostFactor[]
+
   @@map("companies")
 }
 
@@ -517,4 +528,268 @@ model TakeoffImport {
   @@index([companyId])
   @@index([projectId])
   @@map("takeoff_imports")
+}
+
+// ============================================================
+// ESTIMATE / PROPOSAL — Reference catalogs (per-tenant)
+// ============================================================
+// Populated initially from AWG's productivity spreadsheet
+// (AWG_Construction_Productivity_Database_V2.xlsx). The Estimate
+// and EstimateLine tables that consume these come in a later
+// migration once the proposal-build UI lands.
+
+// Top-level trade division: Rough Carpentry, Siding, Drywall, etc.
+model Division {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  name         String
+  code         String?
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company          Company             @relation(fields: [companyId], references: [id])
+  trades           LaborTrade[]
+  productivityRows ProductivityEntry[]
+  materials        Material[]
+  assemblies       Assembly[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("divisions")
+}
+
+// A geographic market where the company operates. Labor rates and
+// certain cost factors are scoped to a region.
+model Region {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  stateCode String   @map("state_code")
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  laborRates  LaborRate[]
+  costFactors CostFactor[]
+
+  @@unique([companyId, stateCode])
+  @@index([companyId])
+  @@map("regions")
+}
+
+// A skilled labor category (Carpenter Rough/Finish, Tile Setter,
+// Painter, ...). Rate varies by region and shop type — see LaborRate.
+model LaborTrade {
+  id         String   @id @default(uuid())
+  companyId  String   @map("company_id")
+  name       String
+  divisionId String?  @map("division_id")
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company            Company             @relation(fields: [companyId], references: [id])
+  division           Division?           @relation(fields: [divisionId], references: [id])
+  rates              LaborRate[]
+  productivityRows   ProductivityEntry[]
+  assemblyComponents AssemblyComponent[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([divisionId])
+  @@map("labor_trades")
+}
+
+// Hourly rate for a trade in a region. shopType distinguishes
+// open-shop from union work. Low/Avg/High supports conservative-vs-
+// aggressive estimate toggling.
+// shopType values: "open_shop" | "union"
+model LaborRate {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  tradeId   String   @map("trade_id")
+  regionId  String   @map("region_id")
+  shopType  String   @map("shop_type")
+  lowCents  Int?     @map("low_cents")
+  avgCents  Int      @map("avg_cents")
+  highCents Int?     @map("high_cents")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company    @relation(fields: [companyId], references: [id])
+  trade   LaborTrade @relation(fields: [tradeId], references: [id])
+  region  Region     @relation(fields: [regionId], references: [id])
+
+  @@unique([companyId, tradeId, regionId, shopType])
+  @@index([companyId])
+  @@map("labor_rates")
+}
+
+// Man-hours per unit to perform a defined scope of work. The auto-
+// pricing engine matches a Takeoff classification (by matchCode or
+// fuzzy matchKeywords) and multiplies by quantity to get labor hours.
+model ProductivityEntry {
+  id              String   @id @default(uuid())
+  companyId       String   @map("company_id")
+  divisionId      String   @map("division_id")
+  scopeName       String   @map("scope_name")
+  uom             String
+  crewDescription String?  @map("crew_description")
+  assumedTradeId  String?  @map("assumed_trade_id")
+  mhPerUnitLow    Decimal? @db.Decimal(10, 4) @map("mh_per_unit_low")
+  mhPerUnitAvg    Decimal  @db.Decimal(10, 4) @map("mh_per_unit_avg")
+  mhPerUnitHigh   Decimal? @db.Decimal(10, 4) @map("mh_per_unit_high")
+  matchCode       String?  @map("match_code")
+  matchKeywords   String?  @map("match_keywords")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  company            Company             @relation(fields: [companyId], references: [id])
+  division           Division            @relation(fields: [divisionId], references: [id])
+  assumedTrade       LaborTrade?         @relation(fields: [assumedTradeId], references: [id])
+  assemblyComponents AssemblyComponent[]
+
+  @@index([companyId])
+  @@index([divisionId])
+  @@index([matchCode])
+  @@map("productivity_entries")
+}
+
+// Optional hierarchical material category (Fiber Cement Siding,
+// Lumber, Hardware, ...).
+model MaterialType {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  parentId  String?  @map("parent_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company   Company        @relation(fields: [companyId], references: [id])
+  parent    MaterialType?  @relation("MaterialTypeTree", fields: [parentId], references: [id])
+  children  MaterialType[] @relation("MaterialTypeTree")
+  materials Material[]
+
+  @@index([companyId])
+  @@index([parentId])
+  @@map("material_types")
+}
+
+// A single catalog item. lastPricedAt surfaces stale entries in the
+// UI. wastePercent is baked in, but an EstimateLine can override it.
+model Material {
+  id             String    @id @default(uuid())
+  companyId      String    @map("company_id")
+  divisionId     String?   @map("division_id")
+  materialTypeId String?   @map("material_type_id")
+  name           String
+  sku            String?
+  uom            String
+  lowCents       Int?      @map("low_cents")
+  avgCents       Int       @map("avg_cents")
+  highCents      Int?      @map("high_cents")
+  wastePercent   Int       @default(5) @map("waste_percent")
+  supplier       String?
+  supplierUrl    String?   @map("supplier_url")
+  lastPricedAt   DateTime? @map("last_priced_at")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  company            Company             @relation(fields: [companyId], references: [id])
+  division           Division?           @relation(fields: [divisionId], references: [id])
+  materialType       MaterialType?       @relation(fields: [materialTypeId], references: [id])
+  assemblyComponents AssemblyComponent[]
+
+  @@index([companyId])
+  @@index([divisionId])
+  @@index([materialTypeId])
+  @@map("materials")
+}
+
+// Reusable recipe combining labor + material components into one
+// estimate line (e.g. "Exterior Wall 2x6 + Hardie"). Not part of
+// the initial auto-pricing path — used once a tenant has stable
+// repeatable scopes.
+model Assembly {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  divisionId   String?  @map("division_id")
+  code         String?
+  name         String
+  uom          String
+  defaultScope String   @default("service_and_material") @map("default_scope")
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company    Company             @relation(fields: [companyId], references: [id])
+  division   Division?           @relation(fields: [divisionId], references: [id])
+  components AssemblyComponent[]
+
+  @@index([companyId])
+  @@index([divisionId])
+  @@index([code])
+  @@map("assemblies")
+}
+
+// One piece of an assembly. Can reference catalog rows
+// (productivity + material) OR carry inline labor/material values.
+model AssemblyComponent {
+  id                   String   @id @default(uuid())
+  assemblyId           String   @map("assembly_id")
+  componentName        String   @map("component_name")
+  qtyPerUnit           Decimal  @db.Decimal(12, 4) @map("qty_per_unit")
+  componentUom         String   @map("component_uom")
+  productivityId       String?  @map("productivity_id")
+  laborTradeId         String?  @map("labor_trade_id")
+  materialId           String?  @map("material_id")
+  mhPerComponent       Decimal? @db.Decimal(10, 4) @map("mh_per_component")
+  materialCostCents    Int?     @map("material_cost_cents")
+  wastePercentOverride Int?     @map("waste_percent_override")
+  displayOrder         Int      @default(0) @map("display_order")
+  notes                String?
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  assembly     Assembly           @relation(fields: [assemblyId], references: [id], onDelete: Cascade)
+  productivity ProductivityEntry? @relation(fields: [productivityId], references: [id])
+  laborTrade   LaborTrade?        @relation(fields: [laborTradeId], references: [id])
+  material     Material?          @relation(fields: [materialId], references: [id])
+
+  @@index([assemblyId])
+  @@map("assembly_components")
+}
+
+// Multiplier applied at estimate time to a subset of costs
+// (labor / material / overhead). "Boston Metro +15%", "Prevailing
+// Wage +35%", "HVHZ +18%", "Winter +8%".
+//
+// autoApply = true: the factor is pre-checked on a new estimate
+// when its conditions match (e.g. regionId equals the estimate's
+// region). The user can still uncheck it. False factors are
+// opt-in only.
+//
+// appliesTo values: "labor" | "material" | "overhead"
+model CostFactor {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  regionId      String?  @map("region_id")
+  name          String
+  impactPercent Decimal  @db.Decimal(5, 3) @map("impact_percent")
+  appliesTo     String   @map("applies_to")
+  description   String?
+  isActive      Boolean  @default(true) @map("is_active")
+  autoApply     Boolean  @default(false) @map("auto_apply")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  region  Region? @relation(fields: [regionId], references: [id])
+
+  @@index([companyId])
+  @@index([regionId])
+  @@map("cost_factors")
 }

@@ -125,6 +125,10 @@ async function main() {
 
   const settings = [
     { key: 'preferred_work_types', value: 'Finish Carpentry, Siding, Sheet Metal', description: 'Comma-separated list of preferred work types' },
+    { key: 'default_markup_percent', value: '20', description: 'Default markup applied to new estimates (user can override per estimate)' },
+    { key: 'default_overhead_percent', value: '10', description: 'Default overhead applied to new estimates (user can override per estimate)' },
+    { key: 'default_shop_type', value: 'open_shop', description: 'Default labor shop type for new estimates: open_shop or union' },
+    { key: 'default_mh_range_mode', value: 'avg', description: 'Default MH range for new estimates: low | avg | high' },
     { key: 'ai_auto_analyze',      value: 'true',                                   description: 'Whether AI should automatically analyze new bids on arrival' },
     { key: 'auto_create_bids',     value: 'false',                                  description: 'Whether to auto-create bids from Gmail sync (requires min confidence + state match)' },
     { key: 'auto_min_confidence',  value: '70',                                     description: 'Minimum AI confidence (0-100) required to auto-create bids' },
