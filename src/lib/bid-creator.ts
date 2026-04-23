@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { generateBidNumber } from '@/lib/bid-server';
 import { gmailClientFromRefresh, downloadAttachment, type GmailAttachment } from '@/lib/gmail';
-import { saveFile } from '@/lib/storage';
+import { saveBidFile } from '@/lib/storage';
 import { geocodeAddress } from '@/lib/geocoding';
 import { distanceAndBearingFromBoston } from '@/lib/geo';
 
@@ -241,7 +241,7 @@ export async function acceptExtractionAsBid(
           const buf = await downloadAttachment(gmail, att.messageId, att.attachmentId);
           const blob = new Blob([buf], { type: att.mimeType });
           const file = new File([blob], att.filename, { type: att.mimeType });
-          const saved = await saveFile(file, result.bidId);
+          const saved = await saveBidFile(file, result.bidId);
           await prisma.bidDocument.create({
             data: {
               bidId: result.bidId,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
-import { saveFile, StorageError } from '@/lib/storage';
+import { saveBidFile, StorageError } from '@/lib/storage';
 import { VALID_DOCUMENT_TYPES, type DocumentType } from '@/lib/bid-utils';
 
 export async function GET(
@@ -82,7 +82,7 @@ export async function POST(
 
   let saved;
   try {
-    saved = await saveFile(file, id);
+    saved = await saveBidFile(file, id);
   } catch (err) {
     if (err instanceof StorageError) {
       const status = err.code === 'IO' ? 500 : 400;
