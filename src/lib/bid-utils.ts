@@ -121,7 +121,7 @@ export const VALID_DOCUMENT_TYPES = [
 export type DocumentType = (typeof VALID_DOCUMENT_TYPES)[number];
 
 /** Upload limits — shared by server + client (safe for both). */
-export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024;
 export const ALLOWED_EXTENSIONS = [
   'pdf',
   'dwg',
