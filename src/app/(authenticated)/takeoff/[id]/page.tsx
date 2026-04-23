@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
 
 type ApiProject = {
   id: string;
@@ -78,6 +79,7 @@ export default function ProjectDetailPage({
   const [project, setProject] = useState<ApiProject | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [actionLoading, setActionLoading] = useState(false);
+  const [estimatorDialogOpen, setEstimatorDialogOpen] = useState(false);
 
   useEffect(() => {
     fetch(`/api/projects/${id}`)
@@ -94,6 +96,27 @@ export default function ProjectDetailPage({
       })
       .catch(() => toast.error('Failed to load project'));
   }, [id, router]);
+
+  async function assignEstimator(estimatorId: string | null) {
+    if (!project) return;
+    const res = await fetch(`/api/projects/${project.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estimatorId }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d?.error ?? 'Failed to update estimator');
+      return;
+    }
+    // Re-fetch full project so the Overview updates (includes user name/email).
+    const fresh = await fetch(`/api/projects/${project.id}`).then((r) =>
+      r.ok ? r.json() : null
+    );
+    if (fresh) setProject(fresh);
+    toast.success(estimatorId ? 'Estimator assigned' : 'Estimator removed');
+    setEstimatorDialogOpen(false);
+  }
 
   async function toggleArchive() {
     if (!project) return;
@@ -179,6 +202,15 @@ export default function ProjectDetailPage({
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setEstimatorDialogOpen(true)}
+            disabled={archived}
+          >
+            <UserIcon className="h-3.5 w-3.5" />
+            {project.estimator ? 'Change estimator' : 'Assign estimator'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={toggleArchive}
             disabled={actionLoading}
           >
@@ -215,6 +247,21 @@ export default function ProjectDetailPage({
       {tab === 'overview' && <OverviewPanel project={project} />}
       {tab === 'documents' && <DocumentsPanel project={project} />}
       {tab === 'takeoff' && <TakeoffPanel project={project} />}
+
+      <EstimatorPickerDialog
+        open={estimatorDialogOpen}
+        onOpenChange={setEstimatorDialogOpen}
+        title={project.estimator ? 'Change estimator' : 'Assign estimator'}
+        description={
+          project.estimator
+            ? `Currently assigned to ${project.estimator.name}.`
+            : 'Pick who will drive the takeoff for this project.'
+        }
+        initialEstimatorId={project.estimator?.id ?? null}
+        allowUnassigned
+        confirmLabel="Save"
+        onConfirm={assignEstimator}
+      />
     </div>
   );
 }

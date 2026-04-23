@@ -62,6 +62,7 @@ import {
   type DocumentType,
 } from '@/lib/bid-utils';
 import { ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES } from '@/lib/bid-utils';
+import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
 
 type Document = {
   id: string;
@@ -173,6 +174,7 @@ export default function BidDetailPage() {
   const [tab, setTab] = useState<TabKey>('info');
 
   const [assignOpen, setAssignOpen] = useState(false);
+  const [startTakeoffOpen, setStartTakeoffOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
 
   async function loadBid() {
@@ -211,12 +213,12 @@ export default function BidDetailPage() {
     return true;
   }
 
-  /** Spins up a Takeoff Project for this bid and navigates to it. */
-  async function startTakeoff() {
+  /** Spins up a Takeoff Project for this bid (estimator picked via dialog). */
+  async function startTakeoff(estimatorId: string | null) {
     const res = await fetch('/api/projects/from-bid', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bidId, transitionBid: true }),
+      body: JSON.stringify({ bidId, estimatorId, transitionBid: true }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -224,6 +226,7 @@ export default function BidDetailPage() {
       return;
     }
     toast.success('Takeoff project created');
+    setStartTakeoffOpen(false);
     router.push(`/takeoff/${data.id}`);
   }
 
@@ -330,7 +333,7 @@ export default function BidDetailPage() {
           )}
           {bid.status === 'qualified' && (
             <>
-              <Button size="sm" onClick={startTakeoff}>
+              <Button size="sm" onClick={() => setStartTakeoffOpen(true)}>
                 <Ruler className="h-3.5 w-3.5" />
                 Start Takeoff
               </Button>
@@ -346,7 +349,7 @@ export default function BidDetailPage() {
           )}
           {bid.status === 'sent_to_takeoff' && (
             <>
-              <Button size="sm" variant="outline" onClick={startTakeoff}>
+              <Button size="sm" variant="outline" onClick={() => setStartTakeoffOpen(true)}>
                 <Ruler className="h-3.5 w-3.5" />
                 New Takeoff version
               </Button>
@@ -398,6 +401,15 @@ export default function BidDetailPage() {
         onOpenChange={setAssignOpen}
         bidId={bidId}
         onAssigned={loadBid}
+      />
+      <EstimatorPickerDialog
+        open={startTakeoffOpen}
+        onOpenChange={setStartTakeoffOpen}
+        title="Start Takeoff"
+        description="Create a takeoff project for this bid and assign an estimator."
+        initialEstimatorId={bid.assignedTo ?? null}
+        confirmLabel="Create project"
+        onConfirm={startTakeoff}
       />
       <RejectDialog
         open={rejectOpen}
