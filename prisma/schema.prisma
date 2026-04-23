@@ -85,9 +85,11 @@ model User {
   assignedBids      Bid[]                   @relation("BidAssignedTo")
   statusChanges     BidStatusHistory[]
   extractions       BidExtraction[]         @relation("UserExtractions")
-  projectsEstimated Project[]               @relation("ProjectEstimator")
-  documentsUploaded ProjectDocument[]       @relation("ProjectDocUploader")
-  takeoffImports    TakeoffImport[]         @relation("TakeoffImporter")
+  projectsEstimated       Project[]         @relation("ProjectEstimator")
+  projectsSentToEstimate  Project[]         @relation("ProjectSentToEstimateBy")
+  projectsAsEstimateTarget Project[]        @relation("ProjectEstimateReceiver")
+  documentsUploaded       ProjectDocument[] @relation("ProjectDocUploader")
+  takeoffImports          TakeoffImport[]   @relation("TakeoffImporter")
 
   @@index([companyId])
   @@map("users")
@@ -346,7 +348,7 @@ model SystemSetting {
 // A Project groups all takeoff work for a single construction job.
 // It may be spun up from a qualified Bid (bidId set) or created
 // standalone (bidId null) when the job didn't come through the bid funnel.
-// status values: active | archived
+// status values: active | archived | sent_to_estimate | estimate_accepted
 model Project {
   id            String   @id @default(uuid())
   companyId     String   @map("company_id")
@@ -359,18 +361,31 @@ model Project {
   workType      String?  @map("work_type")
   status        String   @default("active")
   notes         String?
-  startedAt     DateTime @default(now()) @map("started_at")
+  startedAt     DateTime  @default(now()) @map("started_at")
   archivedAt    DateTime? @map("archived_at")
+
+  // Handoff to the Estimate/Proposal module. Filled by "Send to Estimate".
+  // estimateReceiverId can equal estimatorId when one person does both
+  // jobs; will point at a different user once the team grows and proposal
+  // lives in a dedicated role.
+  sentToEstimateAt   DateTime? @map("sent_to_estimate_at")
+  sentToEstimateById String?   @map("sent_to_estimate_by_id")
+  estimateReceiverId String?   @map("estimate_receiver_id")
+  estimateAcceptedAt DateTime? @map("estimate_accepted_at")
+  estimateHandoffNote String?  @map("estimate_handoff_note")
+
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  company         Company           @relation(fields: [companyId], references: [id])
-  bid             Bid?              @relation(fields: [bidId], references: [id])
-  client          Client?           @relation(fields: [clientId], references: [id])
-  estimator       User?             @relation("ProjectEstimator", fields: [estimatorId], references: [id])
-  documents       ProjectDocument[]
-  classifications Classification[]
-  imports         TakeoffImport[]
+  company           Company           @relation(fields: [companyId], references: [id])
+  bid               Bid?              @relation(fields: [bidId], references: [id])
+  client            Client?           @relation(fields: [clientId], references: [id])
+  estimator         User?             @relation("ProjectEstimator", fields: [estimatorId], references: [id])
+  sentToEstimateBy  User?             @relation("ProjectSentToEstimateBy", fields: [sentToEstimateById], references: [id])
+  estimateReceiver  User?             @relation("ProjectEstimateReceiver", fields: [estimateReceiverId], references: [id])
+  documents         ProjectDocument[]
+  classifications   Classification[]
+  imports           TakeoffImport[]
 
   @@index([companyId])
   @@index([bidId])

@@ -31,6 +31,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
 import { DocumentsPanel } from '@/components/takeoff/documents-panel';
+import { TakeoffRollupPanel } from '@/components/takeoff/takeoff-rollup-panel';
+import { useSession } from 'next-auth/react';
 
 type ApiProject = {
   id: string;
@@ -49,6 +51,10 @@ type ApiProject = {
   } | null;
   bid: { id: string; bidNumber: string; status: string; projectName: string } | null;
   estimator: { id: string; name: string; email: string } | null;
+  sentToEstimateAt: string | null;
+  sentToEstimateBy: { id: string; name: string } | null;
+  estimateReceiver: { id: string; name: string; email: string } | null;
+  estimateHandoffNote: string | null;
   documents: Array<{
     id: string;
     fileName: string;
@@ -85,6 +91,8 @@ export default function ProjectDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { data: session } = useSession();
+  const currentUserId = (session?.user as { id?: string } | undefined)?.id ?? null;
   const [project, setProject] = useState<ApiProject | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [actionLoading, setActionLoading] = useState(false);
@@ -93,21 +101,25 @@ export default function ProjectDetailPage({
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
 
+  async function loadProject() {
+    const r = await fetch(`/api/projects/${id}`);
+    if (r.status === 404) {
+      toast.error('Project not found');
+      router.push('/takeoff');
+      return;
+    }
+    if (!r.ok) {
+      toast.error('Failed to load project');
+      return;
+    }
+    const d = await r.json();
+    if (d) setProject(d);
+  }
+
   useEffect(() => {
-    fetch(`/api/projects/${id}`)
-      .then(async (r) => {
-        if (r.status === 404) {
-          toast.error('Project not found');
-          router.push('/takeoff');
-          return null;
-        }
-        return r.ok ? r.json() : null;
-      })
-      .then((d) => {
-        if (d) setProject(d);
-      })
-      .catch(() => toast.error('Failed to load project'));
-  }, [id, router]);
+    loadProject().catch(() => toast.error('Failed to load project'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function assignEstimator(estimatorId: string | null) {
     if (!project) return;
@@ -288,7 +300,13 @@ export default function ProjectDetailPage({
 
       {tab === 'overview' && <OverviewPanel project={project} />}
       {tab === 'documents' && <DocumentsPanel projectId={project.id} />}
-      {tab === 'takeoff' && <TakeoffPanel project={project} />}
+      {tab === 'takeoff' && (
+        <TakeoffRollupPanel
+          project={project}
+          currentUserId={currentUserId}
+          onProjectChanged={() => loadProject().catch(() => {})}
+        />
+      )}
 
       <EstimatorPickerDialog
         open={estimatorDialogOpen}
@@ -437,45 +455,6 @@ function OverviewPanel({ project }: { project: ApiProject }) {
   );
 }
 
-function TakeoffPanel({ project }: { project: ApiProject }) {
-  if (project.classifications.length === 0) {
-    return (
-      <Card>
-        <div className="py-16 text-center">
-          <Ruler className="mx-auto h-8 w-8 text-fg-subtle" />
-          <h3 className="mt-3 text-[15px] font-semibold text-fg-default">
-            No classifications yet
-          </h3>
-          <p className="mt-1 text-[12.5px] text-fg-muted">
-            Add classifications from the library, create custom ones, or import from Togal.
-          </p>
-        </div>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <SectionHeader title={`Classifications (${project.classifications.length})`} />
-      <div className="divide-y divide-border">
-        {project.classifications.map((c) => (
-          <div key={c.id} className="flex items-center justify-between px-5 py-3 text-[13px]">
-            <div>
-              <div className="font-medium text-fg-default">{c.name}</div>
-              <div className="text-[11.5px] uppercase tracking-wide text-fg-subtle">
-                {c.type}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="font-semibold text-fg-default">
-                {Number(c.quantity).toLocaleString()} <span className="text-[11px] text-fg-subtle">{c.uom}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
 
 function TabButton({
   active,

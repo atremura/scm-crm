@@ -4,8 +4,24 @@
 // Project
 // ============================================================
 
-export const VALID_PROJECT_STATUSES = ['active', 'archived'] as const;
+// status transitions:
+//   active ──(Send to Estimate)──▶ sent_to_estimate
+//   sent_to_estimate ──(receiver accepts)──▶ estimate_accepted
+//   any ──(Archive)──▶ archived
+export const VALID_PROJECT_STATUSES = [
+  'active',
+  'sent_to_estimate',
+  'estimate_accepted',
+  'archived',
+] as const;
 export type ProjectStatus = (typeof VALID_PROJECT_STATUSES)[number];
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  active: 'Active',
+  sent_to_estimate: 'Sent to Estimate',
+  estimate_accepted: 'Estimate accepted',
+  archived: 'Archived',
+};
 
 // ============================================================
 // Project Documents
