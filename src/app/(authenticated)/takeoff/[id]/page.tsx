@@ -15,9 +15,7 @@ import {
   FileText,
   Ruler,
   Calendar,
-  FileUp,
   Folder,
-  Upload,
   Trash2,
 } from 'lucide-react';
 import {
@@ -32,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
+import { DocumentsPanel } from '@/components/takeoff/documents-panel';
 
 type ApiProject = {
   id: string;
@@ -288,7 +287,7 @@ export default function ProjectDetailPage({
       </div>
 
       {tab === 'overview' && <OverviewPanel project={project} />}
-      {tab === 'documents' && <DocumentsPanel project={project} />}
+      {tab === 'documents' && <DocumentsPanel projectId={project.id} />}
       {tab === 'takeoff' && <TakeoffPanel project={project} />}
 
       <EstimatorPickerDialog
@@ -435,53 +434,6 @@ function OverviewPanel({ project }: { project: ApiProject }) {
         )}
       </div>
     </div>
-  );
-}
-
-function DocumentsPanel({ project }: { project: ApiProject }) {
-  if (project.documents.length === 0) {
-    return (
-      <Card>
-        <div className="py-16 text-center">
-          <FileUp className="mx-auto h-8 w-8 text-fg-subtle" />
-          <h3 className="mt-3 text-[15px] font-semibold text-fg-default">
-            No documents yet
-          </h3>
-          <p className="mt-1 text-[12.5px] text-fg-muted">
-            Upload plans, specs, and photos — everything stays here for quick reference.
-          </p>
-          <Button size="sm" className="mt-4" disabled>
-            <Upload className="h-3.5 w-3.5" /> Upload (coming soon)
-          </Button>
-        </div>
-      </Card>
-    );
-  }
-  return (
-    <Card>
-      <SectionHeader title={`Documents (${project.documents.length})`} />
-      <div className="divide-y divide-border">
-        {project.documents.map((d) => (
-          <a
-            key={d.id}
-            href={d.fileUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-4 px-5 py-3 text-[13px] hover:bg-sunken/60"
-          >
-            <FileText className="h-4 w-4 text-fg-muted" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-fg-default">{d.fileName}</div>
-              <div className="text-[11.5px] text-fg-subtle">
-                {d.documentType} · {d.fileSizeKb ? `${(d.fileSizeKb / 1024).toFixed(1)} MB` : '—'} ·{' '}
-                {new Date(d.uploadedAt).toLocaleDateString()}
-                {d.uploader && ` · ${d.uploader.name}`}
-              </div>
-            </div>
-          </a>
-        ))}
-      </div>
-    </Card>
   );
 }
 
