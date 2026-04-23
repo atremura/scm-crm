@@ -11,6 +11,7 @@ import {
   Ruler,
   MoreVertical,
   Pencil,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ import {
   type ClassificationScope,
   type Uom,
 } from '@/lib/takeoff-utils';
+import { ImportTogalDialog } from '@/components/takeoff/import-togal-dialog';
 
 export type ClassificationRow = {
   id: string;
@@ -73,6 +75,7 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
   const [rows, setRows] = useState<ClassificationRow[] | null>(null);
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState<ClassificationRow | null>(null);
   const [deleteRow, setDeleteRow] = useState<ClassificationRow | null>(null);
 
@@ -122,7 +125,7 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
   return (
     <aside className="flex h-full w-full flex-col overflow-hidden border-l border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2.5">
         <Ruler className="h-4 w-4 text-fg-muted" />
         <div className="flex-1 text-[13px] font-semibold text-fg-default">
           Classifications
@@ -132,6 +135,15 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
             </span>
           )}
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setImportOpen(true)}
+          title="Import from Togal export"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Import
+        </Button>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="h-3.5 w-3.5" />
           New
@@ -195,6 +207,14 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
           </div>
         </div>
       )}
+
+      {/* Import */}
+      <ImportTogalDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={projectId}
+        onImported={afterMutation}
+      />
 
       {/* Create */}
       <ClassificationDialog
