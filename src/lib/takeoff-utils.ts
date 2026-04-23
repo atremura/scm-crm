@@ -53,6 +53,26 @@ export type ClassificationType = (typeof VALID_CLASSIFICATION_TYPES)[number];
 export const VALID_UOM = ['SF', 'LF', 'EA'] as const;
 export type Uom = (typeof VALID_UOM)[number];
 
+// Tells the downstream Estimate / proposal pipeline whether we're pricing
+// labor only or labor + materials for this classification. The AI reads
+// this to know what to include when generating a quote.
+export const VALID_CLASSIFICATION_SCOPES = [
+  'service',
+  'service_and_material',
+] as const;
+export type ClassificationScope = (typeof VALID_CLASSIFICATION_SCOPES)[number];
+
+export const CLASSIFICATION_SCOPE_LABELS: Record<ClassificationScope, string> = {
+  service: 'Service only',
+  service_and_material: 'Service + Material',
+};
+
+/** Short badge label for list/table views. */
+export const CLASSIFICATION_SCOPE_BADGE: Record<ClassificationScope, string> = {
+  service: 'S',
+  service_and_material: 'S+M',
+};
+
 /** Default UOM for each classification type — used as a suggestion in forms. */
 export const DEFAULT_UOM_BY_TYPE: Record<ClassificationType, Uom> = {
   area: 'SF',

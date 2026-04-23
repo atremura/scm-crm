@@ -5,6 +5,7 @@ import { canDo, requireAuth } from '@/lib/permissions';
 import {
   VALID_CLASSIFICATION_TYPES,
   VALID_UOM,
+  VALID_CLASSIFICATION_SCOPES,
   DEFAULT_UOM_BY_TYPE,
   typeForUom,
   type ClassificationType,
@@ -15,6 +16,7 @@ const createSchema = z.object({
   name: z.string().min(1),
   type: z.enum(VALID_CLASSIFICATION_TYPES).optional(),
   uom: z.enum(VALID_UOM).optional(),
+  scope: z.enum(VALID_CLASSIFICATION_SCOPES).optional(),
   quantity: z.number().nonnegative().optional(),
   unitCost: z.number().nonnegative().nullable().optional(),
   color: z.string().nullable().optional(),
@@ -114,6 +116,7 @@ export async function POST(
         name: parsed.name,
         type,
         uom,
+        scope: parsed.scope ?? 'service_and_material',
         quantity: parsed.quantity ?? 0,
         unitCost: parsed.unitCost ?? null,
         color: parsed.color ?? null,

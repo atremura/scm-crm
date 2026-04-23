@@ -423,6 +423,9 @@ model ClassificationFolder {
 // Per-tenant library of reusable classification definitions.
 // type values: area | linear | count
 // defaultUom values: SF | LF | EA (extendable)
+// defaultScope values: service | service_and_material — tells the Estimate
+// module's AI whether to price labor only or labor + materials for items
+// imported from this template.
 model ClassificationTemplate {
   id           String   @id @default(uuid())
   companyId    String   @map("company_id")
@@ -431,6 +434,7 @@ model ClassificationTemplate {
   externalId   String?  @map("external_id")
   type         String
   defaultUom   String   @map("default_uom")
+  defaultScope String   @default("service_and_material") @map("default_scope")
   defaultColor String?  @map("default_color")
   note         String?
   createdAt    DateTime @default(now()) @map("created_at")
@@ -449,6 +453,8 @@ model ClassificationTemplate {
 // UOM, and optional unit cost used for rollup + export to Estimate later.
 // type values: area | linear | count
 // uom values: SF | LF | EA
+// scope values: service | service_and_material — tells the Estimate module
+// whether it should price labor only or labor + materials for this item.
 model Classification {
   id         String   @id @default(uuid())
   companyId  String   @map("company_id")
@@ -458,6 +464,7 @@ model Classification {
   externalId String?  @map("external_id")
   type       String
   uom        String
+  scope      String   @default("service_and_material")
   quantity   Decimal  @default(0) @db.Decimal(14, 3)
   unitCost   Decimal? @map("unit_cost") @db.Decimal(12, 2)
   color      String?

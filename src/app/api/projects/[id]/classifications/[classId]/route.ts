@@ -5,6 +5,7 @@ import { canDo, requireAuth } from '@/lib/permissions';
 import {
   VALID_CLASSIFICATION_TYPES,
   VALID_UOM,
+  VALID_CLASSIFICATION_SCOPES,
   typeForUom,
   type Uom,
 } from '@/lib/takeoff-utils';
@@ -14,6 +15,7 @@ const patchSchema = z
     name: z.string().min(1).optional(),
     type: z.enum(VALID_CLASSIFICATION_TYPES).optional(),
     uom: z.enum(VALID_UOM).optional(),
+    scope: z.enum(VALID_CLASSIFICATION_SCOPES).optional(),
     quantity: z.number().nonnegative().optional(),
     unitCost: z.number().nonnegative().nullable().optional(),
     color: z.string().nullable().optional(),

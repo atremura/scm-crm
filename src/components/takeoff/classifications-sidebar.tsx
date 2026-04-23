@@ -34,8 +34,12 @@ import { Label } from '@/components/ui/label';
 import {
   VALID_CLASSIFICATION_TYPES,
   VALID_UOM,
+  VALID_CLASSIFICATION_SCOPES,
+  CLASSIFICATION_SCOPE_LABELS,
+  CLASSIFICATION_SCOPE_BADGE,
   DEFAULT_UOM_BY_TYPE,
   type ClassificationType,
+  type ClassificationScope,
   type Uom,
 } from '@/lib/takeoff-utils';
 
@@ -44,6 +48,7 @@ export type ClassificationRow = {
   name: string;
   type: string;
   uom: string;
+  scope: string;
   quantity: number | string;
   unitCost: number | string | null;
   color: string | null;
@@ -262,7 +267,10 @@ function ClassificationRowItem({
             onClick={onEdit}
             className="min-w-0 flex-1 text-left font-semibold text-fg-default hover:text-blue-400"
           >
-            <div className="truncate">{row.name}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate">{row.name}</span>
+              <ScopeBadge scope={row.scope} />
+            </div>
             {row.externalId && (
               <div className="truncate text-[10.5px] font-normal text-fg-subtle">
                 {row.externalId}
@@ -318,6 +326,24 @@ function ClassificationRowItem({
         )}
       </div>
     </li>
+  );
+}
+
+function ScopeBadge({ scope }: { scope: string }) {
+  const s = scope as ClassificationScope;
+  const label = CLASSIFICATION_SCOPE_BADGE[s] ?? '?';
+  const full = CLASSIFICATION_SCOPE_LABELS[s] ?? scope;
+  const color =
+    s === 'service'
+      ? 'bg-warn-500/15 text-warn-500'
+      : 'bg-blue-500/15 text-blue-400';
+  return (
+    <span
+      title={full}
+      className={`shrink-0 rounded px-1.5 py-[1px] font-mono text-[9.5px] font-bold ${color}`}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -383,6 +409,7 @@ function ClassificationDialog({
   const [name, setName] = useState('');
   const [externalId, setExternalId] = useState('');
   const [uom, setUom] = useState<Uom>('SF');
+  const [scope, setScope] = useState<ClassificationScope>('service_and_material');
   const [quantity, setQuantity] = useState('0');
   const [unitCost, setUnitCost] = useState('');
   const [note, setNote] = useState('');
@@ -394,6 +421,7 @@ function ClassificationDialog({
       setName(existing.name);
       setExternalId(existing.externalId ?? '');
       setUom((existing.uom as Uom) ?? 'SF');
+      setScope((existing.scope as ClassificationScope) ?? 'service_and_material');
       setQuantity(String(existing.quantity ?? 0));
       setUnitCost(existing.unitCost !== null && existing.unitCost !== undefined
         ? String(existing.unitCost)
@@ -403,6 +431,7 @@ function ClassificationDialog({
       setName('');
       setExternalId('');
       setUom('SF');
+      setScope('service_and_material');
       setQuantity('0');
       setUnitCost('');
       setNote('');
@@ -431,6 +460,7 @@ function ClassificationDialog({
         name: name.trim(),
         externalId: externalId.trim() || null,
         uom,
+        scope,
         quantity: qn,
         unitCost: cn,
         note: note.trim() || null,
@@ -512,6 +542,30 @@ function ClassificationDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="cls-scope">Scope</Label>
+            <Select
+              value={scope}
+              onValueChange={(v) => setScope(v as ClassificationScope)}
+              disabled={saving}
+            >
+              <SelectTrigger id="cls-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VALID_CLASSIFICATION_SCOPES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {CLASSIFICATION_SCOPE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-fg-subtle">
+              Tells the Estimate module whether to price labor only or labor +
+              materials when this item goes to a proposal.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
