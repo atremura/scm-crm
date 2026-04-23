@@ -59,6 +59,7 @@ async function main() {
     { name: 'Admin',           description: 'Full access to all modules',               isSystem: true },
     { name: 'Estimator',       description: 'Access to Bid, Takeoff, Estimate modules', isSystem: true },
     { name: 'Project Manager', description: 'Access to Contract, Execution, Financial', isSystem: true },
+    { name: 'Supervisor',      description: 'Field supervisor — oversees execution and can review takeoff docs', isSystem: true },
     { name: 'Field Worker',    description: 'Limited access to Execution module only',  isSystem: true },
   ];
 
