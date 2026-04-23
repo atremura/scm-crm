@@ -18,7 +18,17 @@ import {
   FileUp,
   Folder,
   Upload,
+  Trash2,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
@@ -80,6 +90,9 @@ export default function ProjectDetailPage({
   const [tab, setTab] = useState<Tab>('overview');
   const [actionLoading, setActionLoading] = useState(false);
   const [estimatorDialogOpen, setEstimatorDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch(`/api/projects/${id}`)
@@ -116,6 +129,25 @@ export default function ProjectDetailPage({
     if (fresh) setProject(fresh);
     toast.success(estimatorId ? 'Estimator assigned' : 'Estimator removed');
     setEstimatorDialogOpen(false);
+  }
+
+  async function deleteProject() {
+    if (!project) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast.error(d?.error ?? 'Failed to delete project');
+        setDeleting(false);
+        return;
+      }
+      toast.success('Project deleted');
+      router.push('/takeoff');
+    } catch {
+      toast.error('Something went wrong');
+      setDeleting(false);
+    }
   }
 
   async function toggleArchive() {
@@ -224,6 +256,17 @@ export default function ProjectDetailPage({
               </>
             )}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setDeleteConfirm('');
+              setDeleteDialogOpen(true);
+            }}
+            className="text-danger-500 hover:bg-danger-500/10 hover:text-danger-500"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </Button>
         </div>
       </div>
 
@@ -262,6 +305,63 @@ export default function ProjectDetailPage({
         confirmLabel="Save"
         onConfirm={assignEstimator}
       />
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete project</DialogTitle>
+            <DialogDescription>
+              This permanently removes the project, all its documents, classifications,
+              and import history. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-[13px]">
+            <p className="text-fg-muted">
+              To confirm, type the project name below:
+            </p>
+            <p className="rounded-md bg-sunken px-3 py-2 font-mono text-[12.5px] text-fg-default">
+              {project.name}
+            </p>
+            <Input
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="Type the exact project name"
+              disabled={deleting}
+              autoFocus
+            />
+            {project.documents.length > 0 && (
+              <p className="text-[12px] text-warn-500">
+                {project.documents.length} document
+                {project.documents.length === 1 ? '' : 's'} will also be deleted.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteProject}
+              disabled={deleteConfirm !== project.name || deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5" /> Delete permanently
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

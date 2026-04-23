@@ -56,6 +56,24 @@ export async function POST(req: NextRequest) {
     if (!u) return NextResponse.json({ error: 'Estimator not found' }, { status: 400 });
   }
 
+  // Block accidental duplicates — if this bid already has an ACTIVE project,
+  // return 409 with the existing id so the UI can offer "Open existing" instead.
+  // Archived projects don't block (a revision after archive is valid).
+  const existingActive = await prisma.project.findFirst({
+    where: { bidId: bid.id, companyId: ctx.companyId, status: 'active' },
+    select: { id: true, name: true },
+  });
+  if (existingActive) {
+    return NextResponse.json(
+      {
+        error: 'This bid already has an active takeoff project',
+        existingProjectId: existingActive.id,
+        existingProjectName: existingActive.name,
+      },
+      { status: 409 }
+    );
+  }
+
   try {
     const project = await prisma.$transaction(async (tx) => {
       const p = await tx.project.create({

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import { VALID_PROJECT_STATUSES } from '@/lib/takeoff-utils';
+import { deleteFile } from '@/lib/storage';
 
 const patchProjectSchema = z
   .object({
@@ -134,6 +135,13 @@ export async function PATCH(
   }
 }
 
+/**
+ * Hard-delete a project, its documents, classifications, and import audit.
+ * Files in blob/local storage are best-effort deleted first — if cleanup
+ * fails for a file we log and continue so the DB stays consistent.
+ *
+ * Archive (soft) is available via PATCH { status: 'archived' }.
+ */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -147,18 +155,28 @@ export async function DELETE(
   const { id } = await params;
   const existing = await prisma.project.findFirst({
     where: { id, companyId: ctx.companyId },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      documents: { select: { fileUrl: true } },
+    },
   });
   if (!existing) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
+  // Best-effort file cleanup — don't block the DB delete if one fails.
+  await Promise.allSettled(
+    existing.documents.map((d) =>
+      deleteFile(d.fileUrl).catch((err) => {
+        console.warn('[projects.[id].DELETE] file cleanup failed', d.fileUrl, err);
+      })
+    )
+  );
+
   try {
-    await prisma.project.update({
-      where: { id },
-      data: { status: 'archived', archivedAt: new Date() },
-    });
+    // DB cascade removes ProjectDocument, Classification, TakeoffImport rows.
+    await prisma.project.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[projects.[id].DELETE]', err);
-    return NextResponse.json({ error: 'Failed to archive project' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete project' }, { status: 500 });
   }
 }

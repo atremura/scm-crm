@@ -221,6 +221,21 @@ export default function BidDetailPage() {
       body: JSON.stringify({ bidId, estimatorId, transitionBid: true }),
     });
     const data = await res.json();
+
+    // Duplicate guard — backend returns 409 when the bid already has an
+    // active project. Bounce the user to the existing one instead of
+    // silently creating a second.
+    if (res.status === 409 && data?.existingProjectId) {
+      toast.info(
+        data.existingProjectName
+          ? `This bid already has a takeoff: ${data.existingProjectName}. Opening it…`
+          : 'This bid already has a takeoff. Opening it…'
+      );
+      setStartTakeoffOpen(false);
+      router.push(`/takeoff/${data.existingProjectId}`);
+      return;
+    }
+
     if (!res.ok) {
       toast.error(data?.error ?? 'Failed to start takeoff');
       return;
@@ -407,7 +422,7 @@ export default function BidDetailPage() {
         onOpenChange={setStartTakeoffOpen}
         title="Start Takeoff"
         description="Create a takeoff project for this bid and assign an estimator."
-        initialEstimatorId={bid.assignedTo ?? null}
+        initialEstimatorId={bid.assignedUser?.id ?? null}
         confirmLabel="Create project"
         onConfirm={startTakeoff}
       />
