@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -63,15 +62,13 @@ export default function LoginPage() {
           }}
         />
 
-        <div className="relative flex w-full items-center justify-center">
-          <Image
-            src="/brand/jmo-logo-white.png"
-            alt="JMO GROUP Carpentry"
-            width={378}
-            height={146}
-            priority
-            style={{ height: 'auto', width: '100%', maxWidth: 378 }}
-          />
+        <div className="relative flex w-full flex-col items-center gap-2">
+          <div className="text-[56px] font-bold leading-none tracking-[-0.04em] text-white">
+            SCM
+          </div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/55">
+            System Construction Modular
+          </div>
         </div>
 
         <div className="relative max-w-[480px] text-center">
@@ -83,7 +80,7 @@ export default function LoginPage() {
             <span className="text-blue-400">One system.</span>
           </h1>
           <p className="mt-4 text-[15px] leading-[1.6] text-white/70">
-            From bid capture to field execution — JMO&apos;s CRM replaces the
+            From bid capture to field execution — SCM replaces the
             spreadsheets, the email threads, and the back-of-envelope math with a
             single source of truth, powered by AI.
           </p>
@@ -99,16 +96,14 @@ export default function LoginPage() {
       {/* RIGHT — form */}
       <div className="flex flex-col items-center justify-center px-6 py-12 sm:px-12">
         <div className="w-full max-w-[380px]">
-          {/* Mobile-only logo */}
-          <div className="mb-6 flex justify-center lg:hidden">
-            <Image
-              src="/brand/jmo-logo-white.png"
-              alt="JMO GROUP Carpentry"
-              width={220}
-              height={85}
-              priority
-              style={{ height: 'auto', width: 220 }}
-            />
+          {/* Mobile-only brand */}
+          <div className="mb-6 flex flex-col items-center gap-1 lg:hidden">
+            <div className="text-[32px] font-bold leading-none tracking-[-0.03em] text-fg-default">
+              SCM
+            </div>
+            <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-fg-subtle">
+              System Construction Modular
+            </div>
           </div>
 
           <h2 className="text-[26px] font-bold leading-tight tracking-[-0.02em] text-fg-default">

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
@@ -111,15 +110,13 @@ export default function RegisterPage() {
           }}
         />
 
-        <div className="relative flex w-full items-center justify-center">
-          <Image
-            src="/brand/jmo-logo-white.png"
-            alt="SCM"
-            width={320}
-            height={124}
-            priority
-            style={{ height: 'auto', width: '100%', maxWidth: 320 }}
-          />
+        <div className="relative flex w-full flex-col items-center gap-2">
+          <div className="text-[52px] font-bold leading-none tracking-[-0.04em] text-white">
+            SCM
+          </div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-white/55">
+            System Construction Modular
+          </div>
         </div>
 
         <div className="relative max-w-[460px] text-center">
@@ -137,15 +134,13 @@ export default function RegisterPage() {
       {/* RIGHT — form */}
       <div className="flex flex-col items-center justify-center px-6 py-8 sm:px-12">
         <div className="w-full max-w-[440px]">
-          <div className="mb-6 flex justify-center lg:hidden">
-            <Image
-              src="/brand/jmo-logo-white.png"
-              alt="SCM"
-              width={180}
-              height={70}
-              priority
-              style={{ height: 'auto', width: 180 }}
-            />
+          <div className="mb-6 flex flex-col items-center gap-1 lg:hidden">
+            <div className="text-[28px] font-bold leading-none tracking-[-0.03em] text-fg-default">
+              SCM
+            </div>
+            <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-fg-subtle">
+              System Construction Modular
+            </div>
           </div>
 
           <h2 className="text-[24px] font-bold leading-tight tracking-[-0.02em] text-fg-default">
