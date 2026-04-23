@@ -14,8 +14,8 @@ export async function GET(
 
   const { id } = await params;
   try {
-    const extraction = await prisma.bidExtraction.findUnique({
-      where: { id },
+    const extraction = await prisma.bidExtraction.findFirst({
+      where: { id, companyId: ctx.companyId },
       select: {
         id: true,
         emailSubject: true,
@@ -57,6 +57,13 @@ export async function DELETE(
 
   const { id } = await params;
   try {
+    const existing = await prisma.bidExtraction.findFirst({
+      where: { id, companyId: ctx.companyId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Extraction not found' }, { status: 404 });
+    }
     await prisma.bidExtraction.update({
       where: { id },
       data: { status: 'rejected' },

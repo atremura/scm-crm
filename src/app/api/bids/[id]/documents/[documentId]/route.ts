@@ -15,6 +15,13 @@ export async function DELETE(
 
   const { id, documentId } = await params;
 
+  // Confirm the bid belongs to the current company
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+    select: { id: true },
+  });
+  if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
+
   const doc = await prisma.bidDocument.findUnique({ where: { id: documentId } });
   if (!doc || doc.bidId !== id) {
     return NextResponse.json({ error: 'Document not found' }, { status: 404 });

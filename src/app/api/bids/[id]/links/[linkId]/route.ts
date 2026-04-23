@@ -13,8 +13,10 @@ export async function DELETE(
   }
 
   const { id, linkId } = await params;
-  const link = await prisma.bidLink.findUnique({ where: { id: linkId } });
-  if (!link || link.bidId !== id) {
+  const link = await prisma.bidLink.findFirst({
+    where: { id: linkId, companyId: ctx.companyId, bidId: id },
+  });
+  if (!link) {
     return NextResponse.json({ error: 'Link not found' }, { status: 404 });
   }
 

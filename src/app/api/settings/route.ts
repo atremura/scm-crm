@@ -11,6 +11,7 @@ export async function GET() {
 
   try {
     const rows = await prisma.systemSetting.findMany({
+      where: { companyId: ctx.companyId },
       orderBy: { key: 'asc' },
     });
     const map: Record<string, string> = {};
@@ -43,14 +44,17 @@ export async function PATCH(req: NextRequest) {
   try {
     const ops = Object.entries(parsed).map(([key, value]) =>
       prisma.systemSetting.upsert({
-        where: { key },
+        where: { companyId_key: { companyId: ctx.companyId, key } },
         update: { value },
-        create: { key, value },
+        create: { companyId: ctx.companyId, key, value },
       })
     );
     await prisma.$transaction(ops);
 
-    const rows = await prisma.systemSetting.findMany({ orderBy: { key: 'asc' } });
+    const rows = await prisma.systemSetting.findMany({
+      where: { companyId: ctx.companyId },
+      orderBy: { key: 'asc' },
+    });
     const map: Record<string, string> = {};
     rows.forEach((r) => {
       map[r.key] = r.value;

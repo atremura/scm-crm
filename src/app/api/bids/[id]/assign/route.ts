@@ -29,7 +29,9 @@ export async function POST(
     return NextResponse.json({ error: issue }, { status: 400 });
   }
 
-  const bid = await prisma.bid.findUnique({ where: { id } });
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
 
   if (bid.status !== 'qualified') {
@@ -39,7 +41,9 @@ export async function POST(
     );
   }
 
-  const assignee = await prisma.user.findUnique({ where: { id: parsed.userId } });
+  const assignee = await prisma.user.findFirst({
+    where: { id: parsed.userId, companyId: ctx.companyId },
+  });
   if (!assignee || !assignee.isActive) {
     return NextResponse.json({ error: 'Assignee not found or inactive' }, { status: 400 });
   }

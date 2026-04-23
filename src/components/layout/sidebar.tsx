@@ -17,6 +17,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Building,
 } from 'lucide-react';
 
 type NavItem = {
@@ -41,7 +42,7 @@ const navigation: NavGroup[] = [
   {
     section: 'Modules',
     items: [
-      { label: 'BIDs', href: '/bids', icon: Inbox, badge: '8' },
+      { label: 'BIDs', href: '/bids', icon: Inbox },
       { label: 'Takeoff', href: '/takeoff', icon: Ruler },
       { label: 'Estimate', href: '/estimates', icon: Calculator },
       { label: 'Contract', href: '/contracts', icon: FileSignature },
@@ -62,9 +63,16 @@ const navigation: NavGroup[] = [
 type SidebarProps = {
   userName: string;
   userRole: string;
+  companyName: string;
+  companyLogoUrl?: string | null;
 };
 
-export function Sidebar({ userName, userRole }: SidebarProps) {
+export function Sidebar({
+  userName,
+  userRole,
+  companyName,
+  companyLogoUrl,
+}: SidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -82,23 +90,40 @@ export function Sidebar({ userName, userRole }: SidebarProps) {
         collapsed ? 'w-[68px]' : 'w-[260px]'
       }`}
     >
-      {/* Brand */}
+      {/* Brand — company logo if uploaded, otherwise a monogram placeholder */}
       <div
-        className={`flex items-center border-b border-white/[0.06] ${
-          collapsed ? 'justify-center px-2 py-[18px]' : 'px-4 py-[18px]'
+        className={`flex items-center gap-3 border-b border-white/[0.06] ${
+          collapsed ? 'justify-center px-2 py-[18px]' : 'px-4 py-[14px]'
         } min-h-[72px]`}
+        title={companyName}
       >
-        <div className="relative flex items-center">
-          <Image
-            src="/brand/jmo-logo-white.png"
-            alt="JMO Group"
-            width={170}
-            height={66}
-            priority
-            style={{ height: 'auto' }}
-            className={collapsed ? 'w-9' : 'w-[170px]'}
-          />
+        <div
+          className={`grid shrink-0 place-items-center overflow-hidden rounded-lg bg-white/[0.06] ${
+            collapsed ? 'h-9 w-9' : 'h-11 w-11'
+          }`}
+        >
+          {companyLogoUrl ? (
+            <Image
+              src={companyLogoUrl}
+              alt={companyName}
+              width={44}
+              height={44}
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <Building className={collapsed ? 'h-4 w-4 text-white/70' : 'h-5 w-5 text-white/70'} />
+          )}
         </div>
+        {!collapsed && (
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-[14px] font-semibold text-white">
+              {companyName}
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/45">
+              SCM System
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Nav */}

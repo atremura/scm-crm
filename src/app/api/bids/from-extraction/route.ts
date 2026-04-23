@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await acceptExtractionAsBid(parsed.extractionId, {
+      companyId: ctx.companyId,
       actorUserId: ctx.userId,
       clientId: parsed.clientId,
       newClient: parsed.newClient,
@@ -81,8 +82,8 @@ export async function POST(req: NextRequest) {
       forceStatus: 'new',
     });
 
-    const fresh = await prisma.bid.findUnique({
-      where: { id: result.bidId },
+    const fresh = await prisma.bid.findFirst({
+      where: { id: result.bidId, companyId: ctx.companyId },
       include: { client: true },
     });
     return NextResponse.json(fresh, { status: 201 });

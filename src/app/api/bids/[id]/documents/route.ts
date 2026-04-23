@@ -16,6 +16,13 @@ export async function GET(
 
   const { id } = await params;
 
+  // Verify the bid belongs to the current company before returning its docs.
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+    select: { id: true },
+  });
+  if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
+
   try {
     const docs = await prisma.bidDocument.findMany({
       where: { bidId: id },
@@ -39,7 +46,10 @@ export async function POST(
   }
 
   const { id } = await params;
-  const bid = await prisma.bid.findUnique({ where: { id }, select: { id: true } });
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+    select: { id: true },
+  });
   if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
 
   let formData: FormData;

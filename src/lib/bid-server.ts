@@ -3,16 +3,19 @@ import { prisma } from '@/lib/prisma';
 type BidTx = Pick<typeof prisma, 'bid'>;
 
 /**
- * Generates a bid number like "BID-2026-0001", sequential per year.
- * Caller should run this inside a transaction to avoid race conditions
- * when multiple bids are created simultaneously.
+ * Generates a bid number like "BID-2026-0001", sequential per year and
+ * scoped to a company. Caller should run this inside a transaction to
+ * avoid race conditions when multiple bids are created simultaneously.
  */
-export async function generateBidNumber(tx: BidTx = prisma): Promise<string> {
+export async function generateBidNumber(
+  tx: BidTx = prisma,
+  companyId: string
+): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `BID-${year}-`;
 
   const last = await tx.bid.findFirst({
-    where: { bidNumber: { startsWith: prefix } },
+    where: { companyId, bidNumber: { startsWith: prefix } },
     orderBy: { bidNumber: 'desc' },
     select: { bidNumber: true },
   });

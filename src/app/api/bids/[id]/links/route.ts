@@ -20,7 +20,10 @@ export async function POST(
   }
 
   const { id } = await params;
-  const bid = await prisma.bid.findUnique({ where: { id }, select: { id: true } });
+  const bid = await prisma.bid.findFirst({
+    where: { id, companyId: ctx.companyId },
+    select: { id: true },
+  });
   if (!bid) return NextResponse.json({ error: 'Bid not found' }, { status: 404 });
 
   let parsed;
@@ -37,6 +40,7 @@ export async function POST(
   try {
     const link = await prisma.bidLink.create({
       data: {
+        companyId: ctx.companyId,
         bidId: id,
         url: parsed.url,
         label: parsed.label ?? null,

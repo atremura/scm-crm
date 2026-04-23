@@ -1,31 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { requireAuth } from '@/lib/permissions';
 
-// GET /api/users/[id] - Get user details with permissions
+// GET /api/users/[id] - Get user details (must be in same company)
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const ctx = await requireAuth();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id },
+    const user = await prisma.user.findFirst({
+      where: { id, companyId: ctx.companyId },
       include: {
         role: true,
-        modulePermissions: {
-          include: {
-            module: true,
-          },
-        },
+        modulePermissions: { include: { module: true } },
       },
     });
 
@@ -41,19 +34,15 @@ export async function GET(
   }
 }
 
-// PATCH /api/users/[id] - Update user
+// PATCH /api/users/[id] - Update user (must be in same company)
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
+  const ctx = await requireAuth();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const currentUser = session.user as any;
-  if (currentUser.role !== 'Admin') {
+  if (ctx.role !== 'Admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -63,13 +52,13 @@ export async function PATCH(
     const body = await req.json();
     const { name, email, password, roleId, isActive, permissions } = body;
 
-    // Check if user exists
-    const existing = await prisma.user.findUnique({ where: { id } });
+    const existing = await prisma.user.findFirst({
+      where: { id, companyId: ctx.companyId },
+    });
     if (!existing) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // If email is changing, check uniqueness
     if (email && email !== existing.email) {
       const emailTaken = await prisma.user.findUnique({ where: { email } });
       if (emailTaken) {
@@ -77,14 +66,12 @@ export async function PATCH(
       }
     }
 
-    // Build update data
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email;
     if (roleId !== undefined) updateData.roleId = roleId;
     if (isActive !== undefined) updateData.isActive = isActive;
 
-    // Hash new password if provided
     if (password && password.trim() !== '') {
       if (password.length < 8) {
         return NextResponse.json(
@@ -95,21 +82,14 @@ export async function PATCH(
       updateData.passwordHash = await bcrypt.hash(password, 10);
     }
 
-    // Update in a transaction (user + permissions)
     const updatedUser = await prisma.$transaction(async (tx) => {
       const user = await tx.user.update({
         where: { id },
         data: updateData,
       });
 
-      // Update permissions if provided
       if (permissions && Array.isArray(permissions)) {
-        // Delete existing permissions
-        await tx.userModulePermission.deleteMany({
-          where: { userId: id },
-        });
-
-        // Create new permissions
+        await tx.userModulePermission.deleteMany({ where: { userId: id } });
         if (permissions.length > 0) {
           await tx.userModulePermission.createMany({
             data: permissions.map((p: any) => ({
@@ -140,21 +120,16 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
+  const ctx = await requireAuth();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const currentUser = session.user as any;
-  if (currentUser.role !== 'Admin') {
+  if (ctx.role !== 'Admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const { id } = await params;
 
-  // Prevent self-deactivation
-  if (currentUser.id === id) {
+  if (ctx.userId === id) {
     return NextResponse.json(
       { error: 'You cannot deactivate your own account' },
       { status: 400 }
@@ -162,6 +137,13 @@ export async function DELETE(
   }
 
   try {
+    const existing = await prisma.user.findFirst({
+      where: { id, companyId: ctx.companyId },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
     await prisma.user.update({
       where: { id },
       data: { isActive: false },

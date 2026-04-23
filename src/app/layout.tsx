@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JMO GROUP Carpentry CRM",
-  description: "Construction Management System for JMO GROUP Carpentry",
+  title: "SCM — System Construction Modular",
+  description: "Modular CRM for construction companies",
 };
 
 export default function RootLayout({
