@@ -40,7 +40,7 @@ import {
   PROJECT_DOC_ALLOWED_EXTENSIONS,
   type ProjectDocumentType,
 } from '@/lib/takeoff-utils';
-import { PdfViewerDialog } from '@/components/takeoff/pdf-viewer-dialog';
+import { PdfViewerPane } from '@/components/takeoff/pdf-viewer-pane';
 
 type ApiDocument = {
   id: string;
@@ -205,6 +205,74 @@ export function DocumentsPanel({ projectId }: Props) {
     });
     return base;
   }, [docs]);
+
+  // Viewer takes over the panel when a document is selected — the list is
+  // hidden so the PDF fills the available height. Back button returns to it.
+  if (viewDoc) {
+    const typeLabel =
+      TYPE_LABELS[viewDoc.documentType as ProjectDocumentType] ?? viewDoc.documentType;
+    const meta = [
+      typeLabel,
+      viewDoc.fileSizeKb ? `${(viewDoc.fileSizeKb / 1024).toFixed(1)} MB` : null,
+      new Date(viewDoc.uploadedAt).toLocaleDateString(),
+      viewDoc.uploader?.name,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    return (
+      <>
+        <PdfViewerPane
+          fileUrl={viewDoc.fileUrl}
+          fileName={viewDoc.fileName}
+          fileType={viewDoc.fileType}
+          rightMeta={meta}
+          onBack={() => setViewDoc(null)}
+          onDelete={() => setDeleteDoc(viewDoc)}
+          projectId={projectId}
+        />
+        {/* Delete confirm is rendered here so it still works from inside the viewer. */}
+        <Dialog open={!!deleteDoc} onOpenChange={(v) => !v && setDeleteDoc(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete document</DialogTitle>
+              <DialogDescription>
+                This permanently removes <b>{deleteDoc?.fileName}</b> and its file
+                from storage. This can&apos;t be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setDeleteDoc(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  const wasViewing = viewDoc?.id === deleteDoc?.id;
+                  await confirmDelete();
+                  if (wasViewing) setViewDoc(null);
+                }}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting…
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -456,15 +524,6 @@ export function DocumentsPanel({ projectId }: Props) {
           </ul>
         </div>
       )}
-
-      {/* Viewer */}
-      <PdfViewerDialog
-        open={!!viewDoc}
-        onOpenChange={(v) => !v && setViewDoc(null)}
-        fileUrl={viewDoc?.fileUrl ?? null}
-        fileName={viewDoc?.fileName ?? null}
-        fileType={viewDoc?.fileType ?? null}
-      />
 
       {/* Delete confirm */}
       <Dialog open={!!deleteDoc} onOpenChange={(v) => !v && setDeleteDoc(null)}>
