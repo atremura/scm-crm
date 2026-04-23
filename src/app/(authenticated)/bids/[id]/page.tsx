@@ -32,6 +32,7 @@ import {
   FilePlus,
   Plus,
   Sparkles,
+  Ruler,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -210,6 +211,22 @@ export default function BidDetailPage() {
     return true;
   }
 
+  /** Spins up a Takeoff Project for this bid and navigates to it. */
+  async function startTakeoff() {
+    const res = await fetch('/api/projects/from-bid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bidId, transitionBid: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data?.error ?? 'Failed to start takeoff');
+      return;
+    }
+    toast.success('Takeoff project created');
+    router.push(`/takeoff/${data.id}`);
+  }
+
   if (loading && !bid) {
     return (
       <div className="mx-auto flex max-w-[1440px] items-center justify-center p-12 text-fg-muted">
@@ -313,9 +330,13 @@ export default function BidDetailPage() {
           )}
           {bid.status === 'qualified' && (
             <>
-              <Button size="sm" onClick={() => setAssignOpen(true)}>
+              <Button size="sm" onClick={startTakeoff}>
+                <Ruler className="h-3.5 w-3.5" />
+                Start Takeoff
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setAssignOpen(true)}>
                 <Send className="h-3.5 w-3.5" />
-                Assign to Takeoff
+                Assign only
               </Button>
               <Button size="sm" variant="outline" onClick={() => setRejectOpen(true)}>
                 <XCircle className="h-3.5 w-3.5" />
@@ -325,6 +346,10 @@ export default function BidDetailPage() {
           )}
           {bid.status === 'sent_to_takeoff' && (
             <>
+              <Button size="sm" variant="outline" onClick={startTakeoff}>
+                <Ruler className="h-3.5 w-3.5" />
+                New Takeoff version
+              </Button>
               <Button size="sm" onClick={() => changeStatus('won')}>
                 <Trophy className="h-3.5 w-3.5" />
                 Mark as Won
