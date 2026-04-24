@@ -5,6 +5,7 @@ import {
   priceClassification,
   rollupTotals,
   resolveFallbackTrade,
+  sectionForDivision,
   type PricingConfig,
   type MhRangeMode,
   type ShopType,
@@ -104,6 +105,7 @@ export async function POST(
             'default_mh_range_mode',
             'default_markup_percent',
             'default_overhead_percent',
+            'default_general_conditions_percent',
           ],
         },
       },
@@ -136,8 +138,11 @@ export async function POST(
 
   const shopType = (settings.default_shop_type as ShopType) ?? 'open_shop';
   const mhRangeMode = (settings.default_mh_range_mode as MhRangeMode) ?? 'avg';
-  const markupPercent = parseFloat(settings.default_markup_percent ?? '20');
+  const markupPercent = parseFloat(settings.default_markup_percent ?? '15');
   const overheadPercent = parseFloat(settings.default_overhead_percent ?? '10');
+  const generalConditionsPercent = parseFloat(
+    settings.default_general_conditions_percent ?? '8'
+  );
 
   const config: PricingConfig = {
     regionId: region.id,
@@ -153,9 +158,11 @@ export async function POST(
     divisionId: t.divisionId,
   }));
   const fallbackTradeByDivisionId = new Map<string, string>();
+  const sectionByDivisionId = new Map<string, string>();
   for (const d of divisions) {
     const tid = resolveFallbackTrade(d.name, tradeRefs);
     if (tid) fallbackTradeByDivisionId.set(d.id, tid);
+    sectionByDivisionId.set(d.id, sectionForDivision(d.name));
   }
 
   // Massage reference rows into the plain shape the pricing engine expects
@@ -220,6 +227,7 @@ export async function POST(
             mhRangeMode,
             markupPercent,
             overheadPercent,
+            generalConditionsPercent,
             clientName: project.client?.companyName ?? null,
           },
         });
@@ -241,6 +249,19 @@ export async function POST(
 
           const subtotalCents =
             (result.laborCostCents ?? 0) + (result.materialCostCents ?? 0);
+
+          // Group label = section name from the productivity's division
+          // when available. When the line couldn't match anything, drop
+          // it under "Unclassified" so it still gets a section header.
+          let groupName = 'Unclassified';
+          if (result.productivityEntryId) {
+            const matchedProd = refs.productivity.find(
+              (p) => p.id === result.productivityEntryId
+            );
+            if (matchedProd) {
+              groupName = sectionByDivisionId.get(matchedProd.divisionId) ?? 'Other';
+            }
+          }
 
           await tx.estimateLine.create({
             data: {
@@ -264,6 +285,7 @@ export async function POST(
                 : undefined,
               subtotalCents,
               displayOrder: order++,
+              groupName,
               suggestedByAi: result.suggestedByAi,
               aiConfidence: result.aiConfidence,
               needsReview: result.needsReview,

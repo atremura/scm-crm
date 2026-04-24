@@ -842,11 +842,29 @@ model Estimate {
   shopType           String    @default("open_shop") @map("shop_type")
   mhRangeMode        String    @default("avg") @map("mh_range_mode") // "low" | "avg" | "high"
 
-  // Margins (defaults come from SystemSetting on create; user overrides here)
-  markupPercent      Decimal?  @db.Decimal(5, 2) @map("markup_percent")
-  overheadPercent    Decimal?  @db.Decimal(5, 2) @map("overhead_percent")
-  contingencyPercent Decimal?  @db.Decimal(5, 2) @map("contingency_percent")
-  salesTaxPercent    Decimal?  @db.Decimal(5, 2) @map("sales_tax_percent")
+  // Margins (defaults come from SystemSetting on create; user overrides here).
+  // All three are applied to Direct Cost (labor + material) in FLAT mode —
+  // matches how AWG's real proposals stack: GC + Overhead + Profit all
+  // percent-of-direct, summed alongside direct for the grand total. Not
+  // cascaded on top of each other.
+  // - generalConditionsPercent: staging, scaffolding, lift, small tools
+  // - overheadPercent:          company overhead (insurance, office, GC)
+  // - markupPercent:            profit (labeled "Profit" in the UI)
+  // - salesTaxPercent:          optional; applied to final total
+  markupPercent            Decimal?  @db.Decimal(5, 2) @map("markup_percent")
+  overheadPercent          Decimal?  @db.Decimal(5, 2) @map("overhead_percent")
+  generalConditionsPercent Decimal?  @db.Decimal(5, 2) @map("general_conditions_percent")
+  contingencyPercent       Decimal?  @db.Decimal(5, 2) @map("contingency_percent")
+  salesTaxPercent          Decimal?  @db.Decimal(5, 2) @map("sales_tax_percent")
+
+  // Project envelope area for "cost per SF" metric. Optional — blank means
+  // we skip the metric.
+  totalEnvelopeSf    Decimal?  @db.Decimal(14, 2) @map("total_envelope_sf")
+
+  // Free-form bullets the estimator wants printed on the proposal
+  // (e.g. "Scaffolding/staging included", "Painting excluded"). Rendered
+  // as a Notes & Assumptions section on the PDF/export.
+  assumptions        String?
 
   // Proposal output
   proposalNumber     String?   @map("proposal_number")

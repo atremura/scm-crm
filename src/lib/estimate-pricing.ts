@@ -92,6 +92,39 @@ export type RefLaborTrade = {
 };
 
 /**
+ * Map a Division name to the section/group label used on the proposal.
+ * The Cowork-generated proposals roll lines up under section headers
+ * like "Siding & Cladding"; this keeps that vocabulary consistent
+ * regardless of which trade spelled it in the takeoff.
+ */
+const DIVISION_TO_SECTION: Record<string, string> = {
+  'rough carpentry': 'Rough Framing',
+  'finish carpentry': 'Trim & Finish Carpentry',
+  'siding': 'Siding & Cladding',
+  'avb / wrb': 'Air & Water Barriers',
+  'windows': 'Windows & Doors',
+  'windows & doors': 'Windows & Doors',
+  'insulation': 'Insulation',
+  'drywall': 'Drywall',
+  'painting': 'Painting',
+  'tile': 'Tile',
+  'flooring': 'Flooring',
+  'cabinets': 'Cabinets',
+  'roofing': 'Roofing',
+  'electrical': 'Electrical',
+  'plumbing': 'Plumbing',
+  'hvac': 'HVAC',
+  'decks & exterior': 'Decks & Exterior',
+  'insulation & drywall': 'Insulation & Drywall',
+  'woods / lumber': 'Woods & Lumber',
+};
+
+export function sectionForDivision(divisionName: string | null | undefined): string {
+  if (!divisionName) return 'Other';
+  return DIVISION_TO_SECTION[divisionName.toLowerCase().trim()] ?? divisionName;
+}
+
+/**
  * Pick a LaborTrade id for a productivity entry that doesn't have
  * one. Tries the division-name hint first, falling back to any trade
  * that matches the division.
@@ -488,23 +521,37 @@ export type EstimateTotals = {
   materialCostCents: number;
   laborFactoredCents: number;
   materialFactoredCents: number;
+  directCostCents: number;
+  generalConditionsCents: number;
   overheadCents: number;
-  markupCents: number;
   contingencyCents: number;
+  markupCents: number;
+  ohpTotalCents: number; // GC + Overhead + Contingency + Markup
   salesTaxCents: number;
   totalCents: number;
 };
 
 /**
- * Rolls the line-level labor + material subtotals into an estimate total,
- * applying cost factors and margin percentages in the expected order:
- *   1. Sum labor + material across lines
- *   2. Apply labor-scoped factors + material-scoped factors
- *   3. Overhead % on (labor + material after factors)
- *   4. Apply overhead-scoped factors
- *   5. Contingency % on subtotal so far
- *   6. Markup % on subtotal so far
- *   7. Sales tax % on subtotal so far
+ * Rolls the line-level labor + material subtotals into an estimate total.
+ *
+ * AWG's real proposals stack OH&P FLAT — every adjustment is a percent of
+ * the **direct cost** (labor + material after factors) and they're summed
+ * alongside direct for the grand total. They do NOT cascade on top of
+ * each other. Example from a real proposal:
+ *
+ *   Direct          $2.51M
+ *   Gen Conditions  $2.51M × 8%  = $201k
+ *   Overhead        $2.51M × 10% = $251k
+ *   Profit          $2.51M × 15% = $377k
+ *   Grand Total     $2.51M + $201k + $251k + $377k = $3.34M
+ *
+ * Sales tax (when present) is applied to the post-OH&P total per the
+ * usual MA/FL rules.
+ *
+ * Cost factors (Boston Metro premium, Winter, Prevailing Wage, etc) are
+ * applied at the line level — labor-scoped factors uplift labor before
+ * sum, material-scoped uplift material, overhead-scoped uplift the OH%
+ * itself.
  */
 export function rollupTotals(
   lines: Array<{ laborCostCents: number | null; materialCostCents: number | null }>,
@@ -512,6 +559,7 @@ export function rollupTotals(
   margins: {
     markupPercent: number | null;
     overheadPercent: number | null;
+    generalConditionsPercent: number | null;
     contingencyPercent: number | null;
     salesTaxPercent: number | null;
   }
@@ -531,35 +579,37 @@ export function rollupTotals(
 
   const laborFactored = Math.round(labor * (1 + laborFactor));
   const materialFactored = Math.round(material * (1 + materialFactor));
-  const hardCost = laborFactored + materialFactored;
+  const directCost = laborFactored + materialFactored;
 
-  const overheadBase = (margins.overheadPercent ?? 0) / 100;
-  const overhead = Math.round(hardCost * overheadBase * (1 + overheadFactor));
-  const afterOverhead = hardCost + overhead;
-
+  // FLAT — each percent is of directCost, not cascaded
+  const generalConditions = Math.round(
+    directCost * ((margins.generalConditionsPercent ?? 0) / 100)
+  );
+  const overhead = Math.round(
+    directCost * ((margins.overheadPercent ?? 0) / 100) * (1 + overheadFactor)
+  );
   const contingency = Math.round(
-    afterOverhead * ((margins.contingencyPercent ?? 0) / 100)
+    directCost * ((margins.contingencyPercent ?? 0) / 100)
   );
-  const afterContingency = afterOverhead + contingency;
+  const markup = Math.round(directCost * ((margins.markupPercent ?? 0) / 100));
 
-  const markup = Math.round(
-    afterContingency * ((margins.markupPercent ?? 0) / 100)
-  );
-  const afterMarkup = afterContingency + markup;
+  const ohpTotal = generalConditions + overhead + contingency + markup;
+  const beforeTax = directCost + ohpTotal;
 
-  const salesTax = Math.round(
-    afterMarkup * ((margins.salesTaxPercent ?? 0) / 100)
-  );
-  const total = afterMarkup + salesTax;
+  const salesTax = Math.round(beforeTax * ((margins.salesTaxPercent ?? 0) / 100));
+  const total = beforeTax + salesTax;
 
   return {
     laborCostCents: labor,
     materialCostCents: material,
     laborFactoredCents: laborFactored,
     materialFactoredCents: materialFactored,
+    directCostCents: directCost,
+    generalConditionsCents: generalConditions,
     overheadCents: overhead,
-    markupCents: markup,
     contingencyCents: contingency,
+    markupCents: markup,
+    ohpTotalCents: ohpTotal,
     salesTaxCents: salesTax,
     totalCents: total,
   };

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import {
   resolveFallbackTrade,
+  sectionForDivision,
   type MhRangeMode,
 } from '@/lib/estimate-pricing';
 
@@ -160,6 +161,10 @@ export async function PATCH(
       updates.laborHours = laborHours;
       updates.laborRateCents = laborRateCents;
       updates.laborCostCents = laborCostCents;
+      // Re-bucket the line into the new section based on the picked
+      // productivity's division. Keeps the proposal organized as the
+      // user accepts AI suggestions.
+      updates.groupName = sectionForDivision(prod.division.name);
     }
   }
 
