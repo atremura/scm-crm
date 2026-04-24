@@ -42,6 +42,7 @@ type ProjectLite = {
   sentToEstimateBy: { id: string; name: string } | null;
   estimateReceiver: { id: string; name: string; email: string } | null;
   estimateHandoffNote: string | null;
+  estimate: { id: string; status: string } | null;
 };
 
 type Props = {
@@ -57,6 +58,7 @@ export function TakeoffRollupPanel({
 }: Props) {
   const [rows, setRows] = useState<ApiClassification[] | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
+  const [accepting, setAccepting] = useState(false);
 
   async function load() {
     const res = await fetch(`/api/projects/${project.id}/classifications`);
@@ -145,6 +147,32 @@ export function TakeoffRollupPanel({
   const isSent = project.status === 'sent_to_estimate' || !!project.sentToEstimateAt;
   const isAccepted = project.status === 'estimate_accepted';
 
+  async function acceptHandoff() {
+    setAccepting(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/accept-estimate`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? 'Failed to accept');
+        return;
+      }
+      toast.success('Estimate created — auto-pricing applied');
+      // Refresh parent so the banner flips to "Accepted" + link appears,
+      // then jump straight to the estimate UI.
+      onProjectChanged();
+      if (data.estimateId) {
+        // Small delay so the toast registers before navigation
+        setTimeout(() => {
+          window.location.href = `/estimates/${data.estimateId}`;
+        }, 200);
+      }
+    } finally {
+      setAccepting(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Handoff banner */}
@@ -196,6 +224,33 @@ export function TakeoffRollupPanel({
                   {project.estimateHandoffNote}
                 </div>
               )}
+
+              {/* Action row inside the banner */}
+              <div className="mt-3 flex items-center gap-2">
+                {isSent && !isAccepted && project.estimateReceiver?.id === currentUserId && (
+                  <Button size="sm" onClick={acceptHandoff} disabled={accepting}>
+                    {accepting ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Creating estimate…
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Accept &amp; start pricing
+                      </>
+                    )}
+                  </Button>
+                )}
+                {isAccepted && project.estimate && (
+                  <Button asChild size="sm">
+                    <Link href={`/estimates/${project.estimate.id}`}>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Open estimate
+                    </Link>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

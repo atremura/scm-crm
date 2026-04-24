@@ -55,6 +55,7 @@ type ApiProject = {
   sentToEstimateBy: { id: string; name: string } | null;
   estimateReceiver: { id: string; name: string; email: string } | null;
   estimateHandoffNote: string | null;
+  estimate: { id: string; status: string } | null;
   documents: Array<{
     id: string;
     fileName: string;

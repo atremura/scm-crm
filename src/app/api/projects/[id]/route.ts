@@ -49,6 +49,7 @@ export async function GET(
         estimator: { select: { id: true, name: true, email: true } },
         sentToEstimateBy: { select: { id: true, name: true } },
         estimateReceiver: { select: { id: true, name: true, email: true } },
+        estimate: { select: { id: true, status: true } },
         documents: {
           orderBy: { uploadedAt: 'desc' },
           include: { uploader: { select: { id: true, name: true } } },
