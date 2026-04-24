@@ -85,13 +85,14 @@ async function main() {
 
   const prisma = new PrismaClient();
 
-  const company = await prisma.company.findUnique({
+  const found = await prisma.company.findUnique({
     where: { slug: args.companySlug },
     select: { id: true, name: true },
   });
-  if (!company) {
+  if (!found) {
     throw new Error(`Company with slug "${args.companySlug}" not found`);
   }
+  const company: { id: string; name: string } = found;
   console.log(`🏢 Target: ${company.name} (${company.id})`);
 
   const wb = XLSX.readFile(args.file);

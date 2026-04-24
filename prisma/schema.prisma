@@ -52,6 +52,10 @@ model Company {
   assemblies              Assembly[]
   costFactors             CostFactor[]
 
+  // Estimate operational
+  estimates               Estimate[]
+  estimateLines           EstimateLine[]
+
   @@map("companies")
 }
 
@@ -101,6 +105,8 @@ model User {
   projectsAsEstimateTarget Project[]        @relation("ProjectEstimateReceiver")
   documentsUploaded       ProjectDocument[] @relation("ProjectDocUploader")
   takeoffImports          TakeoffImport[]   @relation("TakeoffImporter")
+  estimatesOwned          Estimate[]        @relation("EstimateOwner")
+  estimatesReceivedFrom   Estimate[]        @relation("EstimateReceivedFrom")
 
   @@index([companyId])
   @@map("users")
@@ -397,6 +403,7 @@ model Project {
   documents         ProjectDocument[]
   classifications   Classification[]
   imports           TakeoffImport[]
+  estimate          Estimate?
 
   @@index([companyId])
   @@index([bidId])
@@ -498,9 +505,10 @@ model Classification {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  company  Company                 @relation(fields: [companyId], references: [id])
-  project  Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  template ClassificationTemplate? @relation(fields: [templateId], references: [id])
+  company       Company                 @relation(fields: [companyId], references: [id])
+  project       Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template      ClassificationTemplate? @relation(fields: [templateId], references: [id])
+  estimateLines EstimateLine[]
 
   @@index([companyId])
   @@index([projectId])
@@ -573,6 +581,7 @@ model Region {
   company     Company      @relation(fields: [companyId], references: [id])
   laborRates  LaborRate[]
   costFactors CostFactor[]
+  estimates   Estimate[]
 
   @@unique([companyId, stateCode])
   @@index([companyId])
@@ -595,6 +604,7 @@ model LaborTrade {
   rates              LaborRate[]
   productivityRows   ProductivityEntry[]
   assemblyComponents AssemblyComponent[]
+  estimateLines      EstimateLine[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -652,6 +662,7 @@ model ProductivityEntry {
   division           Division            @relation(fields: [divisionId], references: [id])
   assumedTrade       LaborTrade?         @relation(fields: [assumedTradeId], references: [id])
   assemblyComponents AssemblyComponent[]
+  estimateLines      EstimateLine[]
 
   @@index([companyId])
   @@index([divisionId])
@@ -786,10 +797,160 @@ model CostFactor {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  company Company @relation(fields: [companyId], references: [id])
-  region  Region? @relation(fields: [regionId], references: [id])
+  company              Company              @relation(fields: [companyId], references: [id])
+  region               Region?              @relation(fields: [regionId], references: [id])
+  estimateApplications EstimateCostFactor[]
 
   @@index([companyId])
   @@index([regionId])
   @@map("cost_factors")
+}
+
+// ============================================================
+// ESTIMATE / PROPOSAL — Operational tables
+// ============================================================
+
+// One Estimate per Project (enforced by @unique on projectId).
+// Revisions to a sent proposal are captured via status transitions
+// + EstimateCostFactor snapshots; a new "proposal variant" feature
+// can later be modeled as multiple Estimates per Project if needed.
+//
+// status flow:
+//   draft ──(owner runs pricing)──▶ in_pricing
+//   in_pricing ──(owner locks)──▶ pricing_done
+//   pricing_done ──(owner submits)──▶ submitted_to_client
+//   submitted_to_client ──▶ won | lost | cancelled
+//   * ──(owner cancels)──▶ cancelled
+model Estimate {
+  id                 String    @id @default(uuid())
+  companyId          String    @map("company_id")
+  projectId          String    @unique @map("project_id")
+  status             String    @default("draft")
+
+  // Handoff metadata — who owns the proposal + who sent it from Takeoff
+  ownerId            String    @map("owner_id")
+  receivedFromId     String?   @map("received_from_id")
+  receivedAt         DateTime? @map("received_at")
+  acceptedAt         DateTime? @map("accepted_at")
+
+  // Configuration driving auto-pricing
+  regionId           String    @map("region_id")
+  shopType           String    @default("open_shop") @map("shop_type")
+  mhRangeMode        String    @default("avg") @map("mh_range_mode") // "low" | "avg" | "high"
+
+  // Margins (defaults come from SystemSetting on create; user overrides here)
+  markupPercent      Decimal?  @db.Decimal(5, 2) @map("markup_percent")
+  overheadPercent    Decimal?  @db.Decimal(5, 2) @map("overhead_percent")
+  contingencyPercent Decimal?  @db.Decimal(5, 2) @map("contingency_percent")
+  salesTaxPercent    Decimal?  @db.Decimal(5, 2) @map("sales_tax_percent")
+
+  // Proposal output
+  proposalNumber     String?   @map("proposal_number")
+  clientName         String?   @map("client_name")   // snapshot from Project.Client
+  submittedAt        DateTime? @map("submitted_at")
+  wonAt              DateTime? @map("won_at")
+  lostAt             DateTime? @map("lost_at")
+  lostReason         String?   @map("lost_reason")
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company            Company              @relation(fields: [companyId], references: [id])
+  project            Project              @relation(fields: [projectId], references: [id])
+  region             Region               @relation(fields: [regionId], references: [id])
+  owner              User                 @relation("EstimateOwner", fields: [ownerId], references: [id])
+  receivedFrom       User?                @relation("EstimateReceivedFrom", fields: [receivedFromId], references: [id])
+  lines              EstimateLine[]
+  appliedFactors     EstimateCostFactor[]
+
+  @@index([companyId])
+  @@index([status])
+  @@map("estimates")
+}
+
+// One line per Takeoff Classification (seeded at Accept time) or
+// ad-hoc line (classificationId null). Everything on this row is
+// a snapshot — editing a LaborRate or ProductivityEntry later
+// never retroactively changes priced estimates.
+model EstimateLine {
+  id                   String   @id @default(uuid())
+  companyId            String   @map("company_id")
+  estimateId           String   @map("estimate_id")
+  classificationId     String?  @map("classification_id")
+
+  // Descriptive snapshot (even if the source Classification gets renamed)
+  name                 String
+  externalId           String?  @map("external_id")
+  scope                String              // service | service_and_material
+  uom                  String
+  quantity             Decimal  @db.Decimal(14, 3)
+
+  // Resolved refs + snapshotted values
+  productivityEntryId  String?  @map("productivity_entry_id")
+  laborTradeId         String?  @map("labor_trade_id")
+  mhPerUnit            Decimal? @db.Decimal(10, 4) @map("mh_per_unit")
+  laborHours           Decimal? @db.Decimal(12, 3) @map("labor_hours")
+  laborRateCents       Int?     @map("labor_rate_cents")
+  laborCostCents       Int?     @map("labor_cost_cents")
+
+  // Material cost breakdown lives in JSON — one line can expand to
+  // multiple materials (e.g. Hardie siding = panel + trim + nails).
+  // Structure: [{ name, qty, uom, unitCostCents, wastePercent, materialId? }]
+  materialCostCents    Int?     @map("material_cost_cents")
+  materialBreakdown    Json?    @map("material_breakdown")
+  wastePercentOverride Int?     @map("waste_percent_override")
+
+  // Sale price after markup (computed at save time)
+  unitPriceCents       Int?     @map("unit_price_cents")
+  subtotalCents        Int?     @map("subtotal_cents")
+
+  // Organization / display
+  displayOrder         Int      @default(0) @map("display_order")
+  groupName            String?  @map("group_name")
+
+  // AI / confidence tracking
+  suggestedByAi        Boolean  @default(false) @map("suggested_by_ai")
+  aiConfidence         Int?     @map("ai_confidence")      // 0-100
+  userOverridden       Boolean  @default(false) @map("user_overridden")
+  needsReview          Boolean  @default(false) @map("needs_review")
+  notes                String?
+
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  company              Company             @relation(fields: [companyId], references: [id])
+  estimate             Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  classification       Classification?     @relation(fields: [classificationId], references: [id])
+  productivityEntry    ProductivityEntry?  @relation(fields: [productivityEntryId], references: [id])
+  laborTrade           LaborTrade?         @relation(fields: [laborTradeId], references: [id])
+
+  @@index([companyId])
+  @@index([estimateId])
+  @@index([classificationId])
+  @@map("estimate_lines")
+}
+
+// Each cost factor the user opted in on an estimate. Snapshot of
+// name + impact + appliesTo so future edits to the underlying
+// CostFactor don't silently re-price closed estimates.
+// autoApplied=true means this was pre-checked by the system on
+// create (region match) rather than manually added by the user.
+model EstimateCostFactor {
+  id            String   @id @default(uuid())
+  estimateId    String   @map("estimate_id")
+  costFactorId  String?  @map("cost_factor_id")
+
+  // Snapshot
+  name          String
+  impactPercent Decimal  @db.Decimal(5, 3) @map("impact_percent")
+  appliesTo     String   @map("applies_to")  // labor | material | overhead
+  autoApplied   Boolean  @default(false) @map("auto_applied")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  estimate      Estimate    @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  costFactor    CostFactor? @relation(fields: [costFactorId], references: [id])
+
+  @@index([estimateId])
+  @@map("estimate_cost_factors")
 }
