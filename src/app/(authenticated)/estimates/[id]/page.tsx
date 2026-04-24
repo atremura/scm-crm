@@ -25,6 +25,7 @@ import {
   type ClassificationScope,
 } from '@/lib/takeoff-utils';
 import { rollupTotals } from '@/lib/estimate-pricing';
+import { AiSuggestDialog } from '@/components/estimate/ai-suggest-dialog';
 
 type ApiLine = {
   id: string;
@@ -97,6 +98,21 @@ export default function EstimatePage({
   const router = useRouter();
   const [estimate, setEstimate] = useState<ApiEstimate | null>(null);
   const [loading, setLoading] = useState(true);
+  const [suggestLine, setSuggestLine] = useState<ApiLine | null>(null);
+
+  async function loadEstimate() {
+    const res = await fetch(`/api/estimates/${id}`);
+    if (res.status === 404) {
+      toast.error('Estimate not found');
+      router.push('/estimates');
+      return;
+    }
+    if (!res.ok) {
+      toast.error('Failed to load estimate');
+      return;
+    }
+    setEstimate(await res.json());
+  }
 
   useEffect(() => {
     fetch(`/api/estimates/${id}`)
@@ -273,6 +289,7 @@ export default function EstimatePage({
                 <th className="px-3 py-2 text-right">Material $</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
                 <th className="px-3 py-2 text-center">AI</th>
+                <th className="w-12"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -320,6 +337,17 @@ export default function EstimatePage({
                       needsReview={l.needsReview}
                     />
                   </td>
+                  <td className="pr-2 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setSuggestLine(l)}
+                      title="Ask Claude for a better match"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-blue-400" />
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -347,6 +375,14 @@ export default function EstimatePage({
           {estimate.acceptedAt ? new Date(estimate.acceptedAt).toLocaleString() : '—'}
         </MetaCard>
       </div>
+
+      <AiSuggestDialog
+        open={!!suggestLine}
+        onOpenChange={(v) => !v && setSuggestLine(null)}
+        estimateId={estimate.id}
+        line={suggestLine}
+        onApplied={() => loadEstimate()}
+      />
     </div>
   );
 }
