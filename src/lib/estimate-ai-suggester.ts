@@ -148,9 +148,23 @@ Construction terms you must understand:
 - "Set toilet / vanity / fixture" — plumbing fixture install, NOT tile.
 - "Rough-in" vs "trim out" — early-stage vs final-stage trade work; pick accordingly.
 
-UOM RULES:
-- The productivity UOM should match (or be closely compatible with) the takeoff UOM. SF productivity for SF takeoff. LF for LF. EA for EA.
-- If the only close match has the wrong UOM, return null and warn — don't force it.
+UOM RULES (HARD — VIOLATIONS ARE COSTLY):
+- Productivity UOM and takeoff UOM must AGREE: SF↔SF, LF↔LF, EA↔EA.
+- If no productivity entry shares the takeoff's UOM, productivityId = null. Period.
+  Do NOT pick a different UOM "as a best guess" — that produces nonsense numbers
+  (e.g. an LF fascia estimated against an SF backer-board productivity).
+  Set needsHumanReview=true and explain in warnings that the catalog lacks a
+  matching-UOM entry — Andre will add one.
+- Same rule for materials: an LF takeoff should pull an LF (or EA-priced linear)
+  material, not an SF panel.
+- Edge case: SF/SY are convertible (1 SY = 9 SF) and SF/SQ are convertible
+  (1 SQ = 100 SF). For these you may pick across, but mention the conversion
+  in the reason. Anything else, refuse.
+
+MATCH BY ITEM CODE FIRST: if the takeoff's externalId looks like a SKU/code
+(e.g. "ELFCS-1", "EL03A", "WRB-01") and a productivity entry has a matchCode
+that matches the prefix, that's almost always the correct pick — even if the
+free-text fuzzy score is only middling.
 
 Output structured JSON exactly per the schema. Be specific in reasons (cite the productivity scopeName or material name). Keep reasons under 200 chars each.`;
 
