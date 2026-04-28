@@ -507,6 +507,168 @@ export function priceClassification(
   };
 }
 
+/**
+ * Same shape as priceClassification, but starts from a known
+ * ProductivityEntry id (typically resolved deterministically by
+ * `togal-resolver.ts`'s matchCode-prefix lookup). Skips the fuzzy
+ * scope match — but still picks the best material, resolves trade,
+ * looks up the rate, and computes labor.
+ *
+ * Use this when you've already classified the line via Togal ID /
+ * name prefix and just need to compute the snapshot values.
+ */
+export function priceWithProductivity(
+  productivityEntryId: string,
+  input: PricingInput,
+  config: PricingConfig,
+  refs: {
+    productivity: RefProductivity[];
+    laborRates: RefLaborRate[];
+    materials: RefMaterial[];
+    fallbackTradeByDivisionId?: Map<string, string>;
+  }
+): PricingResult {
+  const notes: string[] = [];
+  const entry = refs.productivity.find((p) => p.id === productivityEntryId);
+
+  if (!entry) {
+    // Caller passed a stale/unknown id — degrade to needsReview rather
+    // than throw. The route will record what happened in notes.
+    return {
+      productivityEntryId: null,
+      laborTradeId: null,
+      mhPerUnit: null,
+      laborHours: null,
+      laborRateCents: null,
+      laborCostCents: null,
+      materialCostCents: null,
+      materialBreakdown: null,
+      suggestedByAi: false,
+      aiConfidence: 0,
+      needsReview: true,
+      notes: ['Resolver returned a productivity id that no longer exists in the catalog.'],
+    };
+  }
+
+  // L5 hard validator — UOM mismatch should have been caught by the
+  // resolver, but defend in depth in case the route called this with
+  // the wrong id.
+  if (entry.uom.trim().toUpperCase() !== input.uom.trim().toUpperCase()) {
+    // Tolerate FT↔LF synonym
+    const A = entry.uom.trim().toUpperCase();
+    const B = input.uom.trim().toUpperCase();
+    const ftLfSynonym =
+      (A === 'FT' && B === 'LF') || (A === 'LF' && B === 'FT');
+    if (!ftLfSynonym) {
+      notes.push(
+        `UOM mismatch: productivity is ${entry.uom}, takeoff is ${input.uom}. Labor not applied — needs review.`
+      );
+      return {
+        productivityEntryId: null,
+        laborTradeId: null,
+        mhPerUnit: null,
+        laborHours: null,
+        laborRateCents: null,
+        laborCostCents: null,
+        materialCostCents: null,
+        materialBreakdown: null,
+        suggestedByAi: false,
+        aiConfidence: 0,
+        needsReview: true,
+        notes,
+      };
+    }
+  }
+
+  // --- Labor ---
+  const tradeId =
+    entry.assumedTradeId ??
+    refs.fallbackTradeByDivisionId?.get(entry.divisionId) ??
+    null;
+  const mh = pickMh(entry, config.mhRangeMode);
+  const laborHours = Math.round(input.quantity * mh * 1000) / 1000;
+
+  let laborRateCents: number | null = null;
+  if (tradeId) {
+    const rate = refs.laborRates.find(
+      (r) =>
+        r.tradeId === tradeId &&
+        r.regionId === config.regionId &&
+        r.shopType === config.shopType
+    );
+    if (rate) {
+      laborRateCents = pickRate(rate, config.mhRangeMode);
+    } else {
+      notes.push(
+        `No ${config.shopType} rate for trade in this region — defaulted to 0.`
+      );
+    }
+  } else {
+    notes.push('No assumed trade on productivity entry — pick one to price labor.');
+  }
+
+  const laborCostCents =
+    laborRateCents !== null ? Math.round(laborHours * laborRateCents) : null;
+
+  // --- Material (only if scope implies material) ---
+  let materialCostCents: number | null = null;
+  let materialBreakdown: MaterialBreakdownItem[] | null = null;
+  const needsMaterial = input.scope === 'service_and_material';
+  let materialMatched = false;
+
+  if (needsMaterial) {
+    const mat = findBestMaterial(input, refs.materials, entry.divisionId);
+    if (mat) {
+      const unit = pickMaterial(mat.material, config.mhRangeMode);
+      const wastePct = mat.material.wastePercent;
+      const wastedQty = Math.round(input.quantity * (1 + wastePct / 100) * 10000) / 10000;
+      const subtotal = Math.round(wastedQty * unit);
+      materialBreakdown = [
+        {
+          materialId: mat.material.id,
+          name: mat.material.name,
+          qty: wastedQty,
+          uom: mat.material.uom,
+          unitCostCents: unit,
+          wastePercent: wastePct,
+          subtotalCents: subtotal,
+        },
+      ];
+      materialCostCents = subtotal;
+      materialMatched = true;
+    } else {
+      notes.push('No material match — add materials manually.');
+    }
+  }
+
+  const confidence = buildConfidence({
+    productivityScore: 1,         // resolver is deterministic — full score
+    matchedByCode: true,
+    hasTradeResolved: !!tradeId,
+    hasRate: laborRateCents !== null,
+    needsMaterial,
+    materialMatched,
+  });
+
+  const needsReview =
+    laborRateCents === null || (needsMaterial && !materialMatched);
+
+  return {
+    productivityEntryId: entry.id,
+    laborTradeId: tradeId,
+    mhPerUnit: mh,
+    laborHours,
+    laborRateCents,
+    laborCostCents,
+    materialCostCents,
+    materialBreakdown,
+    suggestedByAi: false,         // deterministic — not "AI suggested"
+    aiConfidence: confidence,
+    needsReview,
+    notes,
+  };
+}
+
 // ============================================================
 // Cost factor application (on the estimate totals)
 // ============================================================

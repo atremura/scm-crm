@@ -33,6 +33,11 @@ const rowSchema = z.object({
   uom: z.enum(VALID_UOM),
   note: z.string().nullable().optional(),
   scope: z.enum(VALID_CLASSIFICATION_SCOPES).optional(),
+  // Togal-native fields — persisted on Classification so the L1/L2
+  // resolver can do deterministic matchCode lookups at accept-estimate time.
+  togalId: z.string().nullable().optional(),
+  togalFolder: z.string().nullable().optional(),
+  togalLabelOriginal: z.string().nullable().optional(),
 });
 
 const bodySchema = z.object({
@@ -102,6 +107,11 @@ export async function POST(
               uom: row.uom,
               type: typeForUom(row.uom),
               note: row.note ?? undefined,
+              // Refresh Togal-native fields if the new export carries them.
+              // We don't blank out existing values when the field is omitted.
+              ...(row.togalId !== undefined ? { togalId: row.togalId?.trim() || null } : {}),
+              ...(row.togalFolder !== undefined ? { togalFolder: row.togalFolder?.trim() || null } : {}),
+              ...(row.togalLabelOriginal !== undefined ? { togalLabelOriginal: row.togalLabelOriginal?.trim() || null } : {}),
             },
           });
           updated++;
@@ -117,6 +127,9 @@ export async function POST(
               scope: row.scope ?? 'service_and_material',
               quantity: row.quantity,
               note: row.note ?? null,
+              togalId: row.togalId?.trim() || null,
+              togalFolder: row.togalFolder?.trim() || null,
+              togalLabelOriginal: row.togalLabelOriginal?.trim() || null,
             },
           });
           created++;

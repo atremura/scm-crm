@@ -36,19 +36,46 @@ export type ImportRow = {
   externalId: string | null;
   quantity: number;
   uom: Uom;
+  /** Togal "ID (Optional)" field — used by the resolver as the highest-
+   *  confidence matchCode signal. Distinct from externalId, which we
+   *  derive from a code prefix in the name when no ID column exists. */
+  togalId: string | null;
+  /** Togal "Folder (Optional)" field — divisional grouping. Resolver
+   *  uses this as a Division pre-filter for the AI fallback path. */
+  togalFolder: string | null;
+  /** Original full label as exported. We persist this so future
+   *  reconciliation can use the unabbreviated string even after the
+   *  normalized `name` is edited. */
+  togalLabelOriginal: string | null;
   /** If the sheet cell we couldn't make sense of. */
   warning?: string;
 };
 
 /**
- * Parse a Togal-formatted sheet:
+ * Locate the column index of a header by trying a list of label
+ * candidates (case-insensitive, substring match). Returns -1 when
+ * nothing matches.
+ */
+function findColumn(headerRow: unknown[], candidates: string[]): number {
+  for (let i = 0; i < headerRow.length; i++) {
+    const cell = String(headerRow[i] ?? '').toLowerCase().trim();
+    if (!cell) continue;
+    for (const c of candidates) {
+      if (cell === c || cell.includes(c)) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Parse a Togal-formatted sheet. Modern Togal exports include columns:
+ *   Classification | ID | Folder | Quantity 1 | Quantity1 UOM | ...
  *
- * | Classification | Quantity 1 | Quantity1 UOM | Quantity 2 | Quantity2 UOM | Quantity 3 | Quantity3 UOM |
+ * Older exports (Andre's first attempt) had only:
+ *   Classification | Quantity 1 | Quantity1 UOM | ...
  *
- * We only look at the primary quantity (Quantity 1 + its UOM). Togal supports
- * up to 3 quantities per row but the real export shared by Andre only uses #1.
- * If later exports start populating #2/#3, we can generate extra rows with the
- * name + suffix — keeping it simple for now.
+ * We detect headers dynamically and degrade gracefully when ID or
+ * Folder are absent — the resolver still has the name-prefix path.
  */
 function parseTogalSheet(wb: XLSX.WorkBook): {
   rows: ImportRow[];
@@ -75,15 +102,32 @@ function parseTogalSheet(wb: XLSX.WorkBook): {
     }
   }
 
+  const headers = aoa[headerRow] ?? [];
+  const colName    = findColumn(headers, ['classification']);
+  const colId      = findColumn(headers, ['id']);
+  const colFolder  = findColumn(headers, ['folder']);
+  const colQty     = findColumn(headers, ['quantity 1', 'quantity1', 'quantity']);
+  const colUom     = findColumn(headers, ['quantity1 uom', 'quantity 1 uom', 'uom']);
+
+  // Defaults for legacy exports without explicit headers — fall back
+  // to the original positional layout (col 0/1/2).
+  const idx = {
+    name:   colName   >= 0 ? colName   : 0,
+    id:     colId     >= 0 ? colId     : -1,
+    folder: colFolder >= 0 ? colFolder : -1,
+    qty:    colQty    >= 0 ? colQty    : 1,
+    uom:    colUom    >= 0 ? colUom    : 2,
+  };
+
   const rows: ImportRow[] = [];
   const skipped: string[] = [];
 
   for (let i = headerRow + 1; i < aoa.length; i++) {
     const r = aoa[i];
     if (!r) continue;
-    const name = String(r[0] ?? '').trim();
-    const qtyRaw = r[1];
-    const uomRaw = String(r[2] ?? '').trim();
+    const name = String(r[idx.name] ?? '').trim();
+    const qtyRaw = r[idx.qty];
+    const uomRaw = String(r[idx.uom] ?? '').trim();
     if (!name) continue;
 
     const qty = typeof qtyRaw === 'number' ? qtyRaw : parseFloat(String(qtyRaw ?? ''));
@@ -97,13 +141,26 @@ function parseTogalSheet(wb: XLSX.WorkBook): {
       continue;
     }
 
+    const togalId =
+      idx.id >= 0 ? String(r[idx.id] ?? '').trim() || null : null;
+    const togalFolder =
+      idx.folder >= 0 ? String(r[idx.folder] ?? '').trim() || null : null;
+
     // Togal names often embed a code like "ELFCS-1 JAMES HARDIE ..." —
     // pull it out into externalId so the dedup match is tighter.
     let externalId: string | null = null;
     const codeMatch = name.match(/^([A-Z][A-Z0-9-]{1,20})\s+/);
     if (codeMatch) externalId = codeMatch[1];
 
-    rows.push({ name, externalId, quantity: qty, uom });
+    rows.push({
+      name,
+      externalId,
+      quantity: qty,
+      uom,
+      togalId,
+      togalFolder,
+      togalLabelOriginal: name, // capture before any future normalization
+    });
   }
 
   return { rows, skipped, sheetName };

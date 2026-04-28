@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import {
   priceClassification,
+  priceWithProductivity,
   rollupTotals,
   resolveFallbackTrade,
   sectionForDivision,
@@ -10,6 +11,7 @@ import {
   type MhRangeMode,
   type ShopType,
 } from '@/lib/estimate-pricing';
+import { resolveClassification } from '@/lib/togal-resolver';
 
 /**
  * POST /api/projects/[id]/accept-estimate
@@ -232,35 +234,109 @@ export async function POST(
           },
         });
 
+        // L1/L2 deterministic resolver — minimal refs view.
+        const resolverRefs = {
+          productivities: refs.productivity.map((p) => ({
+            id: p.id,
+            divisionId: p.divisionId,
+            uom: p.uom,
+            matchCode: p.matchCode,
+            scopeName: p.scopeName,
+          })),
+          divisions: divisions.map((d) => ({ id: d.id, name: d.name })),
+        };
+
         // Price + insert lines one by one (need per-line pricing result)
         let order = 0;
         for (const cls of project.classifications) {
-          const result = priceClassification(
+          const pricingInput = {
+            name: cls.name,
+            externalId: cls.externalId,
+            scope: cls.scope,
+            uom: cls.uom,
+            quantity: Number(cls.quantity),
+          };
+
+          // Step 1 — deterministic Togal resolver (L1/L2)
+          const resolved = resolveClassification(
             {
+              togalId: cls.togalId,
+              togalFolder: cls.togalFolder,
               name: cls.name,
               externalId: cls.externalId,
-              scope: cls.scope,
               uom: cls.uom,
-              quantity: Number(cls.quantity),
             },
-            config,
-            refs
+            resolverRefs
           );
+
+          // Mirror divisionId onto the Classification so future Estimate
+          // synthesis (IA-1, IA-2) can pre-filter the catalog by division
+          // without re-running the resolver.
+          if (resolved.divisionId && cls.divisionId !== resolved.divisionId) {
+            await tx.classification.update({
+              where: { id: cls.id },
+              data: { divisionId: resolved.divisionId },
+            });
+          }
+
+          // Step 2 — choose a pricing path
+          let result;
+          let source: string;
+
+          if (resolved.uomMismatch) {
+            // L5 reject — productivity matched by code but UOM disagrees.
+            // Insert a needsReview line with no labor; Andre fixes the catalog
+            // entry (or picks manually) before the rollup goes out the door.
+            result = {
+              productivityEntryId: null,
+              laborTradeId: null,
+              mhPerUnit: null,
+              laborHours: null,
+              laborRateCents: null,
+              laborCostCents: null,
+              materialCostCents: null,
+              materialBreakdown: null,
+              suggestedByAi: false,
+              aiConfidence: 0,
+              needsReview: true,
+              notes: [resolved.reason],
+            };
+            source = 'manual';      // forces user touch
+          } else if (resolved.productivityEntryId) {
+            // L1/L2 hit — price deterministically. AI never runs for this line.
+            result = priceWithProductivity(
+              resolved.productivityEntryId,
+              pricingInput,
+              config,
+              refs
+            );
+            // Surface the resolver's rationale in the line notes
+            result.notes.unshift(resolved.reason);
+            source = resolved.source;  // 'togal-id' | 'togal-prefix'
+          } else {
+            // No deterministic hit — fall through to fuzzy/AI classifier.
+            result = priceClassification(pricingInput, config, refs);
+            source = result.productivityEntryId ? 'ai-classified' : 'manual';
+            // If the resolver gave us a Folder→Division hint, persist it
+            // even when productivity lookup failed — improves later AI runs.
+            if (resolved.divisionId && resolved.source === 'togal-folder') {
+              result.notes.unshift(resolved.reason);
+            }
+          }
 
           const subtotalCents =
             (result.laborCostCents ?? 0) + (result.materialCostCents ?? 0);
 
-          // Group label = section name from the productivity's division
-          // when available. When the line couldn't match anything, drop
-          // it under "Unclassified" so it still gets a section header.
+          // Group label = section name from the productivity's division when
+          // available. Resolver-supplied divisionId is a fallback for lines
+          // that couldn't match a productivity but did map to a division.
           let groupName = 'Unclassified';
-          if (result.productivityEntryId) {
-            const matchedProd = refs.productivity.find(
-              (p) => p.id === result.productivityEntryId
-            );
-            if (matchedProd) {
-              groupName = sectionByDivisionId.get(matchedProd.divisionId) ?? 'Other';
-            }
+          const divIdForGroup =
+            result.productivityEntryId
+              ? refs.productivity.find((p) => p.id === result.productivityEntryId)?.divisionId
+              : resolved.divisionId;
+          if (divIdForGroup) {
+            groupName = sectionByDivisionId.get(divIdForGroup) ?? 'Other';
           }
 
           await tx.estimateLine.create({
@@ -290,6 +366,7 @@ export async function POST(
               aiConfidence: result.aiConfidence,
               needsReview: result.needsReview,
               notes: result.notes.length ? result.notes.join(' · ') : null,
+              source,
             },
           });
         }
