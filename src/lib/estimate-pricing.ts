@@ -323,6 +323,28 @@ export type MaterialMatch = {
   score: number;
 };
 
+/**
+ * UOM compatibility check for materials. Cross-UOM matches are the #1
+ * source of nonsense estimates (e.g. EA-priced corner pieces matched
+ * against LF takeoffs → qty × $/EA = 10× over). Hard-reject anything
+ * that's not directly compatible.
+ *
+ * Compatible pairs:
+ *   - Identical (SF=SF, LF=LF, EA=EA)
+ *   - FT ↔ LF (linear synonyms)
+ *   - SF ↔ SY (1 SY = 9 SF; caller must convert quantity downstream)
+ *   - SF ↔ SQ (1 SQ = 100 SF; caller must convert)
+ */
+function uomCompatible(takeoffUom: string, materialUom: string): boolean {
+  const A = takeoffUom.trim().toUpperCase();
+  const B = materialUom.trim().toUpperCase();
+  if (A === B) return true;
+  if ((A === 'FT' && B === 'LF') || (A === 'LF' && B === 'FT')) return true;
+  if ((A === 'SF' && B === 'SY') || (A === 'SY' && B === 'SF')) return true;
+  if ((A === 'SF' && B === 'SQ') || (A === 'SQ' && B === 'SF')) return true;
+  return false;
+}
+
 export function findBestMaterial(
   input: PricingInput,
   rows: RefMaterial[],
@@ -334,13 +356,14 @@ export function findBestMaterial(
 
   let best: MaterialMatch | null = null;
   for (const row of rows) {
+    // L5 hard UOM lock — kills cross-UOM nonsense (EA corner @ $154 for an LF
+    // trim line, etc). No bonus, no fallback. If the UOM doesn't make sense,
+    // skip this material entirely.
+    if (!uomCompatible(input.uom, row.uom)) continue;
+
     let score = containment(inputTokens, tokenize(row.name));
     // Bonus if the material sits in the productivity's division
     if (preferDivisionId && row.divisionId === preferDivisionId) {
-      score += 0.05;
-    }
-    // Bonus if UOMs match
-    if (row.uom.toLowerCase() === input.uom.toLowerCase()) {
       score += 0.05;
     }
     if (score > (best?.score ?? 0)) {
