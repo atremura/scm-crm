@@ -42,19 +42,23 @@ model Company {
   takeoffImports          TakeoffImport[]
 
   // Estimate module reference catalogs
-  divisions               Division[]
-  regions                 Region[]
-  laborTrades             LaborTrade[]
-  laborRates              LaborRate[]
-  productivityEntries     ProductivityEntry[]
-  materials               Material[]
-  materialTypes           MaterialType[]
-  assemblies              Assembly[]
-  costFactors             CostFactor[]
+  divisions           Division[]
+  regions             Region[]
+  laborTrades         LaborTrade[]
+  laborRates          LaborRate[]
+  productivityEntries ProductivityEntry[]
+  materials           Material[]
+  materialTypes       MaterialType[]
+  assemblies          Assembly[]
+  costFactors         CostFactor[]
 
   // Estimate operational
-  estimates               Estimate[]
-  estimateLines           EstimateLine[]
+  estimates     Estimate[]
+  estimateLines EstimateLine[]
+
+  // Derivative cost rules + AI suggestion queue
+  derivativeCostRules DerivativeCostRule[]
+  suggestions         Suggestion[]
 
   @@map("companies")
 }
@@ -88,25 +92,25 @@ model User {
 
   // Gmail OAuth — refresh token stored after user authorizes.
   // We exchange it for short-lived access tokens at sync time.
-  gmailEmail            String?   @map("gmail_email")
-  gmailRefreshToken     String?   @map("gmail_refresh_token")
-  gmailConnectedAt      DateTime? @map("gmail_connected_at")
-  gmailLastSyncAt       DateTime? @map("gmail_last_sync_at")
-  gmailHistoryId        String?   @map("gmail_history_id")
+  gmailEmail        String?   @map("gmail_email")
+  gmailRefreshToken String?   @map("gmail_refresh_token")
+  gmailConnectedAt  DateTime? @map("gmail_connected_at")
+  gmailLastSyncAt   DateTime? @map("gmail_last_sync_at")
+  gmailHistoryId    String?   @map("gmail_history_id")
 
-  company           Company                 @relation(fields: [companyId], references: [id])
-  role              Role                    @relation(fields: [roleId], references: [id])
-  modulePermissions UserModulePermission[]
-  assignedBids      Bid[]                   @relation("BidAssignedTo")
-  statusChanges     BidStatusHistory[]
-  extractions       BidExtraction[]         @relation("UserExtractions")
-  projectsEstimated       Project[]         @relation("ProjectEstimator")
-  projectsSentToEstimate  Project[]         @relation("ProjectSentToEstimateBy")
-  projectsAsEstimateTarget Project[]        @relation("ProjectEstimateReceiver")
-  documentsUploaded       ProjectDocument[] @relation("ProjectDocUploader")
-  takeoffImports          TakeoffImport[]   @relation("TakeoffImporter")
-  estimatesOwned          Estimate[]        @relation("EstimateOwner")
-  estimatesReceivedFrom   Estimate[]        @relation("EstimateReceivedFrom")
+  company                  Company                @relation(fields: [companyId], references: [id])
+  role                     Role                   @relation(fields: [roleId], references: [id])
+  modulePermissions        UserModulePermission[]
+  assignedBids             Bid[]                  @relation("BidAssignedTo")
+  statusChanges            BidStatusHistory[]
+  extractions              BidExtraction[]        @relation("UserExtractions")
+  projectsEstimated        Project[]              @relation("ProjectEstimator")
+  projectsSentToEstimate   Project[]              @relation("ProjectSentToEstimateBy")
+  projectsAsEstimateTarget Project[]              @relation("ProjectEstimateReceiver")
+  documentsUploaded        ProjectDocument[]      @relation("ProjectDocUploader")
+  takeoffImports           TakeoffImport[]        @relation("TakeoffImporter")
+  estimatesOwned           Estimate[]             @relation("EstimateOwner")
+  estimatesReceivedFrom    Estimate[]             @relation("EstimateReceivedFrom")
 
   @@index([companyId])
   @@map("users")
@@ -212,15 +216,15 @@ model Bid {
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  company        Company             @relation(fields: [companyId], references: [id])
-  client         Client              @relation(fields: [clientId], references: [id])
-  assignedUser   User?               @relation("BidAssignedTo", fields: [assignedTo], references: [id])
-  documents      BidDocument[]
-  statusHistory  BidStatusHistory[]
-  aiAnalysis     BidAiAnalysis[]
-  extractions    BidExtraction[]     @relation("BidFromExtraction")
-  links          BidLink[]
-  projects       Project[]
+  company       Company            @relation(fields: [companyId], references: [id])
+  client        Client             @relation(fields: [clientId], references: [id])
+  assignedUser  User?              @relation("BidAssignedTo", fields: [assignedTo], references: [id])
+  documents     BidDocument[]
+  statusHistory BidStatusHistory[]
+  aiAnalysis    BidAiAnalysis[]
+  extractions   BidExtraction[]    @relation("BidFromExtraction")
+  links         BidLink[]
+  projects      Project[]
 
   @@unique([companyId, bidNumber])
   @@index([companyId])
@@ -248,21 +252,21 @@ model BidLink {
 }
 
 model BidDocument {
-  id              String   @id @default(uuid())
-  bidId           String   @map("bid_id")
-  fileName        String   @map("file_name")
-  fileUrl         String   @map("file_url")
-  fileType        String?  @map("file_type")
-  documentType    String?  @map("document_type")
-  fileSizeKb      Int?     @map("file_size_kb")
-  version         Int      @default(1)
-  addendumNumber  Int?     @map("addendum_number")
-  replacedById    String?  @map("replaced_by_id")
-  uploadedAt      DateTime @default(now()) @map("uploaded_at")
+  id             String   @id @default(uuid())
+  bidId          String   @map("bid_id")
+  fileName       String   @map("file_name")
+  fileUrl        String   @map("file_url")
+  fileType       String?  @map("file_type")
+  documentType   String?  @map("document_type")
+  fileSizeKb     Int?     @map("file_size_kb")
+  version        Int      @default(1)
+  addendumNumber Int?     @map("addendum_number")
+  replacedById   String?  @map("replaced_by_id")
+  uploadedAt     DateTime @default(now()) @map("uploaded_at")
 
-  bid        Bid            @relation(fields: [bidId], references: [id], onDelete: Cascade)
-  replacedBy BidDocument?   @relation("DocumentVersions", fields: [replacedById], references: [id])
-  replaces   BidDocument[]  @relation("DocumentVersions")
+  bid        Bid           @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  replacedBy BidDocument?  @relation("DocumentVersions", fields: [replacedById], references: [id])
+  replaces   BidDocument[] @relation("DocumentVersions")
 
   @@map("bid_documents")
 }
@@ -283,15 +287,15 @@ model BidStatusHistory {
 }
 
 model BidAiAnalysis {
-  id                      String   @id @default(uuid())
-  bidId                   String   @map("bid_id")
-  passesPrequalification  Boolean  @map("passes_prequalification")
-  distanceScore           Decimal? @map("distance_score")
-  workTypeScore           Decimal? @map("work_type_score")
-  overallScore            Decimal? @map("overall_score")
-  recommendation          String?
-  reasoning               String?
-  analyzedAt              DateTime @default(now()) @map("analyzed_at")
+  id                     String   @id @default(uuid())
+  bidId                  String   @map("bid_id")
+  passesPrequalification Boolean  @map("passes_prequalification")
+  distanceScore          Decimal? @map("distance_score")
+  workTypeScore          Decimal? @map("work_type_score")
+  overallScore           Decimal? @map("overall_score")
+  recommendation         String?
+  reasoning              String?
+  analyzedAt             DateTime @default(now()) @map("analyzed_at")
 
   bid Bid @relation(fields: [bidId], references: [id], onDelete: Cascade)
 
@@ -305,39 +309,39 @@ model BidAiAnalysis {
 // AI extraction of bid emails — auditable record of every Claude call.
 // status: pending | accepted | rejected
 model BidExtraction {
-  id              String    @id @default(uuid())
-  companyId       String    @map("company_id")
-  bidId           String?   @map("bid_id")
-  rawEmail        String    @map("raw_email")
-  emailSubject    String?   @map("email_subject")
-  fromAddress     String?   @map("from_address")
+  id           String  @id @default(uuid())
+  companyId    String  @map("company_id")
+  bidId        String? @map("bid_id")
+  rawEmail     String  @map("raw_email")
+  emailSubject String? @map("email_subject")
+  fromAddress  String? @map("from_address")
 
-  extractedData   Json      @map("extracted_data")
-  confidence      Decimal?  @db.Decimal(5, 2)
-  flags           Json?
-  summary         String?
+  extractedData Json     @map("extracted_data")
+  confidence    Decimal? @db.Decimal(5, 2)
+  flags         Json?
+  summary       String?
 
   // Gmail attachments captured at sync time. Each entry:
   //   { messageId, attachmentId, filename, mimeType, sizeBytes }
   // Downloaded + persisted as BidDocument records when the user accepts.
-  attachments     Json?     @map("attachments")
+  attachments Json? @map("attachments")
 
-  modelUsed       String    @map("model_used")
-  inputTokens     Int?      @map("input_tokens")
-  outputTokens    Int?      @map("output_tokens")
-  cacheReadTokens Int?      @map("cache_read_tokens")
-  costCents       Decimal?  @db.Decimal(10, 4) @map("cost_cents")
+  modelUsed       String   @map("model_used")
+  inputTokens     Int?     @map("input_tokens")
+  outputTokens    Int?     @map("output_tokens")
+  cacheReadTokens Int?     @map("cache_read_tokens")
+  costCents       Decimal? @map("cost_cents") @db.Decimal(10, 4)
 
-  status          String    @default("pending")
+  status String @default("pending")
 
-  extractedBy     String    @map("extracted_by")
-  acceptedAt      DateTime? @map("accepted_at")
+  extractedBy String    @map("extracted_by")
+  acceptedAt  DateTime? @map("accepted_at")
 
-  createdAt       DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  company         Company   @relation(fields: [companyId], references: [id])
-  bid             Bid?      @relation("BidFromExtraction", fields: [bidId], references: [id])
-  user            User      @relation("UserExtractions", fields: [extractedBy], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  bid     Bid?    @relation("BidFromExtraction", fields: [bidId], references: [id])
+  user    User    @relation("UserExtractions", fields: [extractedBy], references: [id])
 
   @@index([companyId])
   @@map("bid_extractions")
@@ -367,16 +371,16 @@ model SystemSetting {
 // standalone (bidId null) when the job didn't come through the bid funnel.
 // status values: active | archived | sent_to_estimate | estimate_accepted
 model Project {
-  id            String   @id @default(uuid())
-  companyId     String   @map("company_id")
-  bidId         String?  @map("bid_id")
-  clientId      String?  @map("client_id")
-  estimatorId   String?  @map("estimator_id")
+  id            String    @id @default(uuid())
+  companyId     String    @map("company_id")
+  bidId         String?   @map("bid_id")
+  clientId      String?   @map("client_id")
+  estimatorId   String?   @map("estimator_id")
   name          String
-  projectNumber String?  @map("project_number")
+  projectNumber String?   @map("project_number")
   address       String?
-  workType      String?  @map("work_type")
-  status        String   @default("active")
+  workType      String?   @map("work_type")
+  status        String    @default("active")
   notes         String?
   startedAt     DateTime  @default(now()) @map("started_at")
   archivedAt    DateTime? @map("archived_at")
@@ -385,25 +389,37 @@ model Project {
   // estimateReceiverId can equal estimatorId when one person does both
   // jobs; will point at a different user once the team grows and proposal
   // lives in a dedicated role.
-  sentToEstimateAt   DateTime? @map("sent_to_estimate_at")
-  sentToEstimateById String?   @map("sent_to_estimate_by_id")
-  estimateReceiverId String?   @map("estimate_receiver_id")
-  estimateAcceptedAt DateTime? @map("estimate_accepted_at")
-  estimateHandoffNote String?  @map("estimate_handoff_note")
+  sentToEstimateAt    DateTime? @map("sent_to_estimate_at")
+  sentToEstimateById  String?   @map("sent_to_estimate_by_id")
+  estimateReceiverId  String?   @map("estimate_receiver_id")
+  estimateAcceptedAt  DateTime? @map("estimate_accepted_at")
+  estimateHandoffNote String?   @map("estimate_handoff_note")
 
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  // Project context — populated by IA-1 (Project Context Analyzer) but
+  // editable by the estimator. Drives equipment-rules and schedule logic
+  // downstream (siding @ stories ≥ 2 → lift; winter premium; etc).
+  stories           Int?
+  durationWeeks     Int?      @map("duration_weeks")
+  siteConditions    Json?     @map("site_conditions") // { urban, lotTight, prevailingWage, ... }
+  requiredEquipment Json?     @map("required_equipment") // [{ type, weeksFrom, weeksTo, justification }]
+  winterRisk        Boolean?  @map("winter_risk")
+  permitChecklist   String[]  @map("permit_checklist")
+  aiContextRunAt    DateTime? @map("ai_context_run_at")
+  aiContextResult   Json?     @map("ai_context_result") // full IA-1 payload for audit
 
-  company           Company           @relation(fields: [companyId], references: [id])
-  bid               Bid?              @relation(fields: [bidId], references: [id])
-  client            Client?           @relation(fields: [clientId], references: [id])
-  estimator         User?             @relation("ProjectEstimator", fields: [estimatorId], references: [id])
-  sentToEstimateBy  User?             @relation("ProjectSentToEstimateBy", fields: [sentToEstimateById], references: [id])
-  estimateReceiver  User?             @relation("ProjectEstimateReceiver", fields: [estimateReceiverId], references: [id])
-  documents         ProjectDocument[]
-  classifications   Classification[]
-  imports           TakeoffImport[]
-  estimate          Estimate?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  bid              Bid?              @relation(fields: [bidId], references: [id])
+  client           Client?           @relation(fields: [clientId], references: [id])
+  estimator        User?             @relation("ProjectEstimator", fields: [estimatorId], references: [id])
+  sentToEstimateBy User?             @relation("ProjectSentToEstimateBy", fields: [sentToEstimateById], references: [id])
+  estimateReceiver User?             @relation("ProjectEstimateReceiver", fields: [estimateReceiverId], references: [id])
+  documents        ProjectDocument[]
+  classifications  Classification[]
+  imports          TakeoffImport[]
+  estimate         Estimate?
 
   @@index([companyId])
   @@index([bidId])
@@ -502,16 +518,34 @@ model Classification {
   unitCost   Decimal? @map("unit_cost") @db.Decimal(12, 2)
   color      String?
   note       String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Togal-native fields — captured at import time. Used by the Estimate
+  // module's classification resolver to do deterministic L1/L2 matching
+  // (matchCode prefix → ProductivityEntry) BEFORE falling back to AI.
+  // togalId       = the "ID (Optional)" field from Togal's Create Area dialog
+  // togalFolder   = the "Folder (Optional)" — usually a Division name
+  // togalLabelOriginal = full label as exported (Togal UI truncates @ ~12 chars,
+  //                      but the .xlsx carries the full string)
+  togalId            String? @map("togal_id")
+  togalFolder        String? @map("togal_folder")
+  togalLabelOriginal String? @map("togal_label_original")
+
+  // Structured FK — set when the resolver classifies (or user picks manually).
+  // Lets the AI pre-filter the catalog by division before any fuzzy text.
+  divisionId String? @map("division_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   company       Company                 @relation(fields: [companyId], references: [id])
   project       Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   template      ClassificationTemplate? @relation(fields: [templateId], references: [id])
+  division      Division?               @relation(fields: [divisionId], references: [id])
   estimateLines EstimateLine[]
 
   @@index([companyId])
   @@index([projectId])
+  @@index([divisionId])
   @@map("classifications")
 }
 
@@ -556,11 +590,13 @@ model Division {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  company          Company             @relation(fields: [companyId], references: [id])
-  trades           LaborTrade[]
-  productivityRows ProductivityEntry[]
-  materials        Material[]
-  assemblies       Assembly[]
+  company             Company              @relation(fields: [companyId], references: [id])
+  trades              LaborTrade[]
+  productivityRows    ProductivityEntry[]
+  materials           Material[]
+  assemblies          Assembly[]
+  classifications     Classification[]
+  derivativeCostRules DerivativeCostRule[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -649,9 +685,9 @@ model ProductivityEntry {
   uom             String
   crewDescription String?  @map("crew_description")
   assumedTradeId  String?  @map("assumed_trade_id")
-  mhPerUnitLow    Decimal? @db.Decimal(10, 4) @map("mh_per_unit_low")
-  mhPerUnitAvg    Decimal  @db.Decimal(10, 4) @map("mh_per_unit_avg")
-  mhPerUnitHigh   Decimal? @db.Decimal(10, 4) @map("mh_per_unit_high")
+  mhPerUnitLow    Decimal? @map("mh_per_unit_low") @db.Decimal(10, 4)
+  mhPerUnitAvg    Decimal  @map("mh_per_unit_avg") @db.Decimal(10, 4)
+  mhPerUnitHigh   Decimal? @map("mh_per_unit_high") @db.Decimal(10, 4)
   matchCode       String?  @map("match_code")
   matchKeywords   String?  @map("match_keywords")
   notes           String?
@@ -757,12 +793,12 @@ model AssemblyComponent {
   id                   String   @id @default(uuid())
   assemblyId           String   @map("assembly_id")
   componentName        String   @map("component_name")
-  qtyPerUnit           Decimal  @db.Decimal(12, 4) @map("qty_per_unit")
+  qtyPerUnit           Decimal  @map("qty_per_unit") @db.Decimal(12, 4)
   componentUom         String   @map("component_uom")
   productivityId       String?  @map("productivity_id")
   laborTradeId         String?  @map("labor_trade_id")
   materialId           String?  @map("material_id")
-  mhPerComponent       Decimal? @db.Decimal(10, 4) @map("mh_per_component")
+  mhPerComponent       Decimal? @map("mh_per_component") @db.Decimal(10, 4)
   materialCostCents    Int?     @map("material_cost_cents")
   wastePercentOverride Int?     @map("waste_percent_override")
   displayOrder         Int      @default(0) @map("display_order")
@@ -793,13 +829,13 @@ model CostFactor {
   companyId     String   @map("company_id")
   regionId      String?  @map("region_id")
   name          String
-  impactPercent Decimal  @db.Decimal(5, 3) @map("impact_percent")
+  impactPercent Decimal  @map("impact_percent") @db.Decimal(5, 3)
   appliesTo     String   @map("applies_to")
   description   String?
   isActive      Boolean  @default(true) @map("is_active")
   autoApply     Boolean  @default(false) @map("auto_apply")
   createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   company              Company              @relation(fields: [companyId], references: [id])
   region               Region?              @relation(fields: [regionId], references: [id])
@@ -826,21 +862,21 @@ model CostFactor {
 //   submitted_to_client ──▶ won | lost | cancelled
 //   * ──(owner cancels)──▶ cancelled
 model Estimate {
-  id                 String    @id @default(uuid())
-  companyId          String    @map("company_id")
-  projectId          String    @unique @map("project_id")
-  status             String    @default("draft")
+  id        String @id @default(uuid())
+  companyId String @map("company_id")
+  projectId String @unique @map("project_id")
+  status    String @default("draft")
 
   // Handoff metadata — who owns the proposal + who sent it from Takeoff
-  ownerId            String    @map("owner_id")
-  receivedFromId     String?   @map("received_from_id")
-  receivedAt         DateTime? @map("received_at")
-  acceptedAt         DateTime? @map("accepted_at")
+  ownerId        String    @map("owner_id")
+  receivedFromId String?   @map("received_from_id")
+  receivedAt     DateTime? @map("received_at")
+  acceptedAt     DateTime? @map("accepted_at")
 
   // Configuration driving auto-pricing
-  regionId           String    @map("region_id")
-  shopType           String    @default("open_shop") @map("shop_type")
-  mhRangeMode        String    @default("avg") @map("mh_range_mode") // "low" | "avg" | "high"
+  regionId    String @map("region_id")
+  shopType    String @default("open_shop") @map("shop_type")
+  mhRangeMode String @default("avg") @map("mh_range_mode") // "low" | "avg" | "high"
 
   // Margins (defaults come from SystemSetting on create; user overrides here).
   // All three are applied to Direct Cost (labor + material) in FLAT mode —
@@ -851,39 +887,45 @@ model Estimate {
   // - overheadPercent:          company overhead (insurance, office, GC)
   // - markupPercent:            profit (labeled "Profit" in the UI)
   // - salesTaxPercent:          optional; applied to final total
-  markupPercent            Decimal?  @db.Decimal(5, 2) @map("markup_percent")
-  overheadPercent          Decimal?  @db.Decimal(5, 2) @map("overhead_percent")
-  generalConditionsPercent Decimal?  @db.Decimal(5, 2) @map("general_conditions_percent")
-  contingencyPercent       Decimal?  @db.Decimal(5, 2) @map("contingency_percent")
-  salesTaxPercent          Decimal?  @db.Decimal(5, 2) @map("sales_tax_percent")
+  markupPercent            Decimal? @map("markup_percent") @db.Decimal(5, 2)
+  overheadPercent          Decimal? @map("overhead_percent") @db.Decimal(5, 2)
+  generalConditionsPercent Decimal? @map("general_conditions_percent") @db.Decimal(5, 2)
+  contingencyPercent       Decimal? @map("contingency_percent") @db.Decimal(5, 2)
+  salesTaxPercent          Decimal? @map("sales_tax_percent") @db.Decimal(5, 2)
 
   // Project envelope area for "cost per SF" metric. Optional — blank means
   // we skip the metric.
-  totalEnvelopeSf    Decimal?  @db.Decimal(14, 2) @map("total_envelope_sf")
+  totalEnvelopeSf Decimal? @map("total_envelope_sf") @db.Decimal(14, 2)
 
   // Free-form bullets the estimator wants printed on the proposal
   // (e.g. "Scaffolding/staging included", "Painting excluded"). Rendered
   // as a Notes & Assumptions section on the PDF/export.
-  assumptions        String?
+  assumptions String?
+
+  // IA-2 Hidden Cost Detector — last run timestamp + raw payload for audit.
+  // Derivative lines are persisted as EstimateLine rows with source='ai-derivative';
+  // this column captures the AI's reasoning + costs even after lines are pruned.
+  aiHiddenCostsRunAt  DateTime? @map("ai_hidden_costs_run_at")
+  aiHiddenCostsResult Json?     @map("ai_hidden_costs_result")
 
   // Proposal output
-  proposalNumber     String?   @map("proposal_number")
-  clientName         String?   @map("client_name")   // snapshot from Project.Client
-  submittedAt        DateTime? @map("submitted_at")
-  wonAt              DateTime? @map("won_at")
-  lostAt             DateTime? @map("lost_at")
-  lostReason         String?   @map("lost_reason")
+  proposalNumber String?   @map("proposal_number")
+  clientName     String?   @map("client_name") // snapshot from Project.Client
+  submittedAt    DateTime? @map("submitted_at")
+  wonAt          DateTime? @map("won_at")
+  lostAt         DateTime? @map("lost_at")
+  lostReason     String?   @map("lost_reason")
 
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  company            Company              @relation(fields: [companyId], references: [id])
-  project            Project              @relation(fields: [projectId], references: [id])
-  region             Region               @relation(fields: [regionId], references: [id])
-  owner              User                 @relation("EstimateOwner", fields: [ownerId], references: [id])
-  receivedFrom       User?                @relation("EstimateReceivedFrom", fields: [receivedFromId], references: [id])
-  lines              EstimateLine[]
-  appliedFactors     EstimateCostFactor[]
+  company        Company              @relation(fields: [companyId], references: [id])
+  project        Project              @relation(fields: [projectId], references: [id])
+  region         Region               @relation(fields: [regionId], references: [id])
+  owner          User                 @relation("EstimateOwner", fields: [ownerId], references: [id])
+  receivedFrom   User?                @relation("EstimateReceivedFrom", fields: [receivedFromId], references: [id])
+  lines          EstimateLine[]
+  appliedFactors EstimateCostFactor[]
 
   @@index([companyId])
   @@index([status])
@@ -895,60 +937,78 @@ model Estimate {
 // a snapshot — editing a LaborRate or ProductivityEntry later
 // never retroactively changes priced estimates.
 model EstimateLine {
-  id                   String   @id @default(uuid())
-  companyId            String   @map("company_id")
-  estimateId           String   @map("estimate_id")
-  classificationId     String?  @map("classification_id")
+  id               String  @id @default(uuid())
+  companyId        String  @map("company_id")
+  estimateId       String  @map("estimate_id")
+  classificationId String? @map("classification_id")
 
   // Descriptive snapshot (even if the source Classification gets renamed)
-  name                 String
-  externalId           String?  @map("external_id")
-  scope                String              // service | service_and_material
-  uom                  String
-  quantity             Decimal  @db.Decimal(14, 3)
+  name       String
+  externalId String? @map("external_id")
+  scope      String // service | service_and_material
+  uom        String
+  quantity   Decimal @db.Decimal(14, 3)
 
   // Resolved refs + snapshotted values
-  productivityEntryId  String?  @map("productivity_entry_id")
-  laborTradeId         String?  @map("labor_trade_id")
-  mhPerUnit            Decimal? @db.Decimal(10, 4) @map("mh_per_unit")
-  laborHours           Decimal? @db.Decimal(12, 3) @map("labor_hours")
-  laborRateCents       Int?     @map("labor_rate_cents")
-  laborCostCents       Int?     @map("labor_cost_cents")
+  productivityEntryId String?  @map("productivity_entry_id")
+  laborTradeId        String?  @map("labor_trade_id")
+  mhPerUnit           Decimal? @map("mh_per_unit") @db.Decimal(10, 4)
+  laborHours          Decimal? @map("labor_hours") @db.Decimal(12, 3)
+  laborRateCents      Int?     @map("labor_rate_cents")
+  laborCostCents      Int?     @map("labor_cost_cents")
 
   // Material cost breakdown lives in JSON — one line can expand to
   // multiple materials (e.g. Hardie siding = panel + trim + nails).
   // Structure: [{ name, qty, uom, unitCostCents, wastePercent, materialId? }]
-  materialCostCents    Int?     @map("material_cost_cents")
-  materialBreakdown    Json?    @map("material_breakdown")
-  wastePercentOverride Int?     @map("waste_percent_override")
+  materialCostCents    Int?  @map("material_cost_cents")
+  materialBreakdown    Json? @map("material_breakdown")
+  wastePercentOverride Int?  @map("waste_percent_override")
 
   // Sale price after markup (computed at save time)
-  unitPriceCents       Int?     @map("unit_price_cents")
-  subtotalCents        Int?     @map("subtotal_cents")
+  unitPriceCents Int? @map("unit_price_cents")
+  subtotalCents  Int? @map("subtotal_cents")
 
   // Organization / display
-  displayOrder         Int      @default(0) @map("display_order")
-  groupName            String?  @map("group_name")
+  displayOrder Int     @default(0) @map("display_order")
+  groupName    String? @map("group_name")
 
   // AI / confidence tracking
-  suggestedByAi        Boolean  @default(false) @map("suggested_by_ai")
-  aiConfidence         Int?     @map("ai_confidence")      // 0-100
-  userOverridden       Boolean  @default(false) @map("user_overridden")
-  needsReview          Boolean  @default(false) @map("needs_review")
-  notes                String?
+  suggestedByAi  Boolean @default(false) @map("suggested_by_ai")
+  aiConfidence   Int?    @map("ai_confidence") // 0-100
+  userOverridden Boolean @default(false) @map("user_overridden")
+  needsReview    Boolean @default(false) @map("needs_review")
+  notes          String?
 
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  // Provenance — how this line came to exist:
+  //   togal-id       — matched via Togal "ID" field exact (highest confidence)
+  //   togal-prefix   — matched via Name prefix regex (e.g. ELFCS-1 → ELFCS)
+  //   ai-classified  — fell through to AI classifier
+  //   ai-derivative  — generated by IA-2 Hidden Cost Detector (fasteners, etc)
+  //   manual         — added by hand in the UI
+  source            String?
+  // Derivative lines are children of a "main" line. Lets the rollup show
+  // them grouped under the parent and lets the user delete the parent +
+  // all its derivatives in one shot.
+  parentLineId      String? @map("parent_line_id")
+  // FK to the rule that generated a derivative line. Null for non-derivative.
+  derivedFromRuleId String? @map("derived_from_rule_id")
 
-  company              Company             @relation(fields: [companyId], references: [id])
-  estimate             Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade)
-  classification       Classification?     @relation(fields: [classificationId], references: [id])
-  productivityEntry    ProductivityEntry?  @relation(fields: [productivityEntryId], references: [id])
-  laborTrade           LaborTrade?         @relation(fields: [laborTradeId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company             @relation(fields: [companyId], references: [id])
+  estimate          Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  classification    Classification?     @relation(fields: [classificationId], references: [id])
+  productivityEntry ProductivityEntry?  @relation(fields: [productivityEntryId], references: [id])
+  laborTrade        LaborTrade?         @relation(fields: [laborTradeId], references: [id])
+  parentLine        EstimateLine?       @relation("EstimateLineDerivatives", fields: [parentLineId], references: [id], onDelete: Cascade)
+  derivatives       EstimateLine[]      @relation("EstimateLineDerivatives")
+  derivedFromRule   DerivativeCostRule? @relation(fields: [derivedFromRuleId], references: [id])
 
   @@index([companyId])
   @@index([estimateId])
   @@index([classificationId])
+  @@index([parentLineId])
   @@map("estimate_lines")
 }
 
@@ -958,21 +1018,121 @@ model EstimateLine {
 // autoApplied=true means this was pre-checked by the system on
 // create (region match) rather than manually added by the user.
 model EstimateCostFactor {
-  id            String   @id @default(uuid())
-  estimateId    String   @map("estimate_id")
-  costFactorId  String?  @map("cost_factor_id")
+  id           String  @id @default(uuid())
+  estimateId   String  @map("estimate_id")
+  costFactorId String? @map("cost_factor_id")
 
   // Snapshot
   name          String
-  impactPercent Decimal  @db.Decimal(5, 3) @map("impact_percent")
-  appliesTo     String   @map("applies_to")  // labor | material | overhead
-  autoApplied   Boolean  @default(false) @map("auto_applied")
+  impactPercent Decimal @map("impact_percent") @db.Decimal(5, 3)
+  appliesTo     String  @map("applies_to") // labor | material | overhead
+  autoApplied   Boolean @default(false) @map("auto_applied")
 
-  createdAt     DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  estimate      Estimate    @relation(fields: [estimateId], references: [id], onDelete: Cascade)
-  costFactor    CostFactor? @relation(fields: [costFactorId], references: [id])
+  estimate   Estimate    @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  costFactor CostFactor? @relation(fields: [costFactorId], references: [id])
 
   @@index([estimateId])
   @@map("estimate_cost_factors")
+}
+
+// ============================================================
+// DERIVATIVE COSTS & AI SUGGESTIONS
+// ============================================================
+
+// Per-tenant rules that generate "implicit" cost lines from explicit ones.
+// E.g. "Hardie smooth siding (matchCode ELFCS) → 0.025 box of ring-shank
+// nails per SF". When IA-2 runs, it iterates the estimate's lines, looks
+// up rules whose trigger matches, and inserts EstimateLine rows with
+// source='ai-derivative' + derivedFromRuleId pointing here.
+//
+// Hybrid origin:
+//   - createdBy='manual' → Andre or Cowork seeded the rule
+//   - createdBy='ai-suggested-approved' → IA-2 proposed it via Suggestion,
+//     Andre approved, the system materialized the rule
+//
+// costType values: material | labor | site | cleanup
+// formula JSON shape (discriminated by .kind):
+//   { kind: 'qty_per_unit',     factor: 0.025, materialId, uomIn:'SF', uomOut:'BX' }
+//   { kind: 'percent_of_direct', percent: 2.5,  costType:'material' }
+//   { kind: 'fixed_per_week',    cents: 65000,  weeksFromProject: true }
+//   { kind: 'count_per_opening', perUnit: 2,    triggerExternalIdPattern:'^A\\d' }
+model DerivativeCostRule {
+  id        String @id @default(uuid())
+  companyId String @map("company_id")
+
+  // Trigger — at least one must be set. matchCode is preferred (more precise);
+  // divisionId is the broader catch-all.
+  triggerProductivityMatchCode String? @map("trigger_productivity_match_code")
+  triggerDivisionId            String? @map("trigger_division_id")
+
+  name          String
+  costType      String  @map("cost_type")
+  formula       Json
+  materialIdRef String? @map("material_id_ref")
+  uomIn         String? @map("uom_in")
+  uomOut        String? @map("uom_out")
+  isActive      Boolean @default(true) @map("is_active")
+  createdBy     String  @default("manual") @map("created_by")
+  notes         String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company       Company        @relation(fields: [companyId], references: [id])
+  division      Division?      @relation(fields: [triggerDivisionId], references: [id])
+  estimateLines EstimateLine[]
+
+  @@index([companyId])
+  @@index([triggerProductivityMatchCode])
+  @@index([triggerDivisionId])
+  @@map("derivative_cost_rules")
+}
+
+// Generic "AI proposes, Andre approves" queue.
+//
+// Principle: IA never writes to master tables (Material, LaborRate,
+// ProductivityEntry, DerivativeCostRule) directly. When IA detects
+// something missing or wrong, it creates a Suggestion. Andre reviews
+// in admin UI, approves → system applies → suggestion is archived.
+//
+// type values:
+//   productivity            — propose a new ProductivityEntry
+//   material                — propose a new Material
+//   derivative_rule         — propose a new DerivativeCostRule (IA-2)
+//   productivity_rate_change — propose adjusting MH/unit (feedback loop)
+//   equipment_rule          — propose a new EquipmentRule (IA-4 future)
+//
+// status values: pending | approved | rejected | archived
+model Suggestion {
+  id            String @id @default(uuid())
+  companyId     String @map("company_id")
+  type          String
+  payload       Json // proposal data (shape depends on type)
+  justification String // why AI suggested
+  confidence    Int    @default(50) // 0-100
+
+  // Provenance — what triggered the suggestion
+  sourceEstimateId String?  @map("source_estimate_id")
+  sourceLineId     String?  @map("source_line_id")
+  modelUsed        String?  @map("model_used")
+  costCents        Decimal? @map("cost_cents") @db.Decimal(10, 4)
+
+  // Review state
+  status         String    @default("pending")
+  reviewedById   String?   @map("reviewed_by_id")
+  reviewedAt     DateTime? @map("reviewed_at")
+  reviewNote     String?   @map("review_note")
+  appliedToTable String?   @map("applied_to_table") // 'productivity_entries' | 'materials' | 'derivative_cost_rules'
+  appliedToId    String?   @map("applied_to_id") // FK in that table once approved
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([type, status])
+  @@map("suggestions")
 }
