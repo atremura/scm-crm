@@ -51,6 +51,15 @@ export async function GET(
             projectNumber: true,
             address: true,
             workType: true,
+            // IA-1 Project Context fields — surfaced on the Estimate page so
+            // Andre sees stories / equipment / assumptions inline.
+            stories: true,
+            durationWeeks: true,
+            siteConditions: true,
+            requiredEquipment: true,
+            winterRisk: true,
+            permitChecklist: true,
+            aiContextRunAt: true,
             client: { select: { id: true, companyName: true } },
           },
         },

@@ -29,6 +29,11 @@ import {
 } from '@/lib/takeoff-utils';
 import { rollupTotals } from '@/lib/estimate-pricing';
 import { AiSuggestDialog } from '@/components/estimate/ai-suggest-dialog';
+import {
+  ProjectContextCard,
+  type SiteConditions,
+  type RequiredEquipment,
+} from '@/components/estimate/project-context-card';
 
 type ApiLine = {
   id: string;
@@ -80,6 +85,14 @@ type ApiEstimate = {
     projectNumber: string | null;
     address: string | null;
     workType: string | null;
+    // IA-1 Project Context fields
+    stories: number | null;
+    durationWeeks: number | null;
+    siteConditions: SiteConditions | null;
+    requiredEquipment: RequiredEquipment[] | null;
+    winterRisk: boolean | null;
+    permitChecklist: string[] | null;
+    aiContextRunAt: string | null;
     client: { id: string; companyName: string } | null;
   };
   region: { id: string; name: string; stateCode: string };
@@ -339,6 +352,22 @@ export default function EstimatePage({
           </Button>
         </div>
       )}
+
+      {/* IA-1 Project Context card */}
+      <ProjectContextCard
+        estimateId={estimate.id}
+        project={{
+          name: estimate.project.name,
+          stories: estimate.project.stories,
+          durationWeeks: estimate.project.durationWeeks,
+          siteConditions: estimate.project.siteConditions,
+          requiredEquipment: estimate.project.requiredEquipment,
+          winterRisk: estimate.project.winterRisk,
+          permitChecklist: estimate.project.permitChecklist,
+          aiContextRunAt: estimate.project.aiContextRunAt,
+        }}
+        onRefreshed={loadEstimate}
+      />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
