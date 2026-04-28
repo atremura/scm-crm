@@ -1,19 +1,50 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 let _client: Anthropic | null = null;
 
 /**
- * Singleton Anthropic client. Reads ANTHROPIC_API_KEY from env.
+ * Read ANTHROPIC_API_KEY from process.env first, then fall back to
+ * parsing .env directly. This handles Windows + Claude Code SDK
+ * environments where the shell session ships ANTHROPIC_API_KEY="" —
+ * dotenv refuses to overwrite an existing-but-empty var, so Next.js's
+ * normal .env loading silently keeps the empty string.
+ */
+function resolveApiKey(): string | null {
+  const fromEnv = (process.env.ANTHROPIC_API_KEY ?? '').trim();
+  if (fromEnv.length > 0) return fromEnv;
+
+  // Fallback: parse .env at project root
+  try {
+    const envPath = join(process.cwd(), '.env');
+    if (!existsSync(envPath)) return null;
+    const text = readFileSync(envPath, 'utf8');
+    const match = text.match(/^ANTHROPIC_API_KEY\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\r\n]+))/m);
+    if (match) {
+      const v = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+      if (v.length > 0) return v;
+    }
+  } catch {
+    // Ignore — caller below throws a clear error.
+  }
+  return null;
+}
+
+/**
+ * Singleton Anthropic client. Reads ANTHROPIC_API_KEY from env (with
+ * a .env fallback for Windows / Claude Code SDK shells).
  * Throws a clear error if the key is missing so callers fail fast.
  */
 export function claude(): Anthropic {
   if (!_client) {
-    if (!process.env.ANTHROPIC_API_KEY) {
+    const apiKey = resolveApiKey();
+    if (!apiKey) {
       throw new Error(
         'ANTHROPIC_API_KEY is not set. Add it to .env to enable AI extraction.'
       );
     }
-    _client = new Anthropic();
+    _client = new Anthropic({ apiKey });
   }
   return _client;
 }
