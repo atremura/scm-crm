@@ -34,6 +34,7 @@ import {
   type SiteConditions,
   type RequiredEquipment,
 } from '@/components/estimate/project-context-card';
+import { AiPassesBar } from '@/components/estimate/ai-passes-bar';
 
 type ApiLine = {
   id: string;
@@ -60,6 +61,9 @@ type ApiLine = {
   aiConfidence: number | null;
   needsReview: boolean;
   notes: string | null;
+  source: string | null;
+  parentLineId: string | null;
+  derivedFromRuleId: string | null;
   laborTrade: { id: string; name: string } | null;
   productivityEntry: { id: string; scopeName: string } | null;
 };
@@ -79,6 +83,8 @@ type ApiEstimate = {
   clientName: string | null;
   createdAt: string;
   acceptedAt: string | null;
+  aiHiddenCostsRunAt: string | null;
+  aiHiddenCostsResult: any;
   project: {
     id: string;
     name: string;
@@ -352,6 +358,16 @@ export default function EstimatePage({
           </Button>
         </div>
       )}
+
+      {/* AI passes banner — IA-1 + IA-2 (+ IA-3/4 placeholders) */}
+      <AiPassesBar
+        estimateId={estimate.id}
+        ia1RunAt={estimate.project.aiContextRunAt}
+        ia2RunAt={estimate.aiHiddenCostsRunAt}
+        ia2DerivativeLineCount={estimate.lines.filter((l) => l.source === 'ai-derivative').length}
+        ia2NewRulesCount={estimate.aiHiddenCostsResult?.aiNewRules ?? 0}
+        onRefreshed={loadEstimate}
+      />
 
       {/* IA-1 Project Context card */}
       <ProjectContextCard
@@ -669,7 +685,10 @@ function LineRow({ line, onSuggest }: { line: ApiLine; onSuggest: () => void }) 
       }`}
     >
       <td className="px-3 py-1.5 font-mono text-[11px] text-fg-muted">
-        {line.externalId ?? '—'}
+        <div className="flex items-center gap-1">
+          <SourceDot source={line.source} />
+          <span>{line.externalId ?? '—'}</span>
+        </div>
       </td>
       <td className="max-w-[280px] px-3 py-1.5 text-fg-default">
         <div className="truncate">{line.name}</div>
@@ -1008,6 +1027,40 @@ function CardHeader({ title }: { title: string }) {
         {title}
       </h3>
     </div>
+  );
+}
+
+/**
+ * Tiny colored dot showing how the line came to exist:
+ *   togal-id        — emerald (deterministic, ID exact match — strongest)
+ *   togal-prefix    — sky (deterministic, name prefix — strong)
+ *   ai-classified   — violet (AI classifier had to run)
+ *   ai-derivative   — orange (IA-2 hidden cost)
+ *   manual          — gray
+ *   (null)          — gray dash
+ */
+function SourceDot({ source }: { source: string | null | undefined }) {
+  const map: Record<string, { color: string; label: string }> = {
+    'togal-id': { color: 'bg-emerald-400', label: 'Togal ID — deterministic' },
+    'togal-prefix': { color: 'bg-sky-400', label: 'Name prefix — deterministic' },
+    'ai-classified': { color: 'bg-violet-400', label: 'AI classifier (fuzzy)' },
+    'ai-derivative': { color: 'bg-orange-400', label: 'IA-2 derivative (hidden cost)' },
+    manual: { color: 'bg-fg-subtle', label: 'Manual entry' },
+  };
+  const meta = source ? map[source] : null;
+  if (!meta) {
+    return (
+      <span
+        className="h-2 w-2 shrink-0 rounded-full bg-fg-subtle/30"
+        title="Source unknown"
+      />
+    );
+  }
+  return (
+    <span
+      className={`h-2 w-2 shrink-0 rounded-full ${meta.color}`}
+      title={meta.label}
+    />
   );
 }
 
