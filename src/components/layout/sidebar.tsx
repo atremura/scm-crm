@@ -18,6 +18,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Building,
+  Package,
+  Wrench,
+  Clock,
+  Sparkles,
 } from 'lucide-react';
 
 type NavItem = {
@@ -48,6 +52,16 @@ const navigation: NavGroup[] = [
       { label: 'Contract', href: '/contracts', icon: FileSignature },
       { label: 'Execution', href: '/execution', icon: HardHat },
       { label: 'Financial', href: '/financial', icon: DollarSign },
+    ],
+  },
+  {
+    section: 'Reference',
+    items: [
+      { label: 'Materials', href: '/admin/reference/materials', icon: Package },
+      { label: 'Productivity', href: '/admin/reference/productivity', icon: Clock },
+      { label: 'Labor rates', href: '/admin/reference/labor-rates', icon: DollarSign },
+      { label: 'Derivative rules', href: '/admin/reference/rules', icon: Wrench },
+      { label: 'AI suggestions', href: '/admin/reference/suggestions', icon: Sparkles },
     ],
   },
   {
