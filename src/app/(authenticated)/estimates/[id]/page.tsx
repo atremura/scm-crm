@@ -957,6 +957,27 @@ function MarginsEditor({
     return Number.isFinite(n) ? n : null;
   }
 
+  // Live preview as the user types — same flat formula as rollupTotals.
+  // Uses the current text inputs even before save so Andre sees the dollar
+  // impact of changing 15% → 10% immediately.
+  const direct = totals.directCostCents;
+  const gcPreview = Math.round(direct * ((parseOrNull(gc) ?? 0) / 100));
+  const ohPreview = Math.round(direct * ((parseOrNull(oh) ?? 0) / 100));
+  const profitPreview = Math.round(direct * ((parseOrNull(profit) ?? 0) / 100));
+  const taxBase = direct + gcPreview + ohPreview + profitPreview;
+  const taxPreview = Math.round(taxBase * ((parseOrNull(tax) ?? 0) / 100));
+  const grandPreview = taxBase + taxPreview;
+
+  const gcDirty = gc !== (estimate.generalConditionsPercent !== null ? String(estimate.generalConditionsPercent) : '');
+  const ohDirty = oh !== (estimate.overheadPercent !== null ? String(estimate.overheadPercent) : '');
+  const profitDirty = profit !== (estimate.markupPercent !== null ? String(estimate.markupPercent) : '');
+  const taxDirty = tax !== (estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : '');
+
+  function liveHint(previewCents: number, savedCents: number, isDirty: boolean, suffix: string): string {
+    if (!isDirty) return `${dollars(previewCents)} ${suffix}`;
+    return `${dollars(previewCents)} ${suffix} · saved was ${dollars(savedCents)}`;
+  }
+
   return (
     <Card>
       <CardHeader title="OH&P · margins · envelope" />
@@ -966,31 +987,63 @@ function MarginsEditor({
             label="General Conditions"
             value={gc}
             onChange={setGc}
-            hint={`${dollars(totals.generalConditionsCents)} on ${dollars(totals.directCostCents)} direct`}
+            hint={liveHint(
+              gcPreview,
+              totals.generalConditionsCents,
+              gcDirty,
+              `on ${dollars(direct)} direct`
+            )}
           />
           <PctInput
             label="Company Overhead"
             value={oh}
             onChange={setOh}
-            hint={`${dollars(totals.overheadCents)} on direct`}
+            hint={liveHint(ohPreview, totals.overheadCents, ohDirty, 'on direct')}
           />
           <PctInput
             label="Profit"
             value={profit}
             onChange={setProfit}
-            hint={`${dollars(totals.markupCents)} on direct`}
+            hint={liveHint(profitPreview, totals.markupCents, profitDirty, 'on direct')}
           />
           <PctInput
             label="Sales Tax (optional)"
             value={tax}
             onChange={setTax}
             hint={
-              totals.salesTaxCents > 0
-                ? `${dollars(totals.salesTaxCents)} on subtotal`
-                : 'leave blank to skip'
+              parseOrNull(tax) === null
+                ? 'leave blank to skip'
+                : liveHint(taxPreview, totals.salesTaxCents, taxDirty, `on ${dollars(taxBase)} subtotal`)
             }
           />
         </div>
+
+        {/* Live total preview — visible only when user is mid-edit */}
+        {(gcDirty || ohDirty || profitDirty || taxDirty) && (
+          <div className="rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2 text-[11.5px]">
+            <div className="font-semibold text-blue-300">Preview (not saved yet)</div>
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-fg-default md:grid-cols-4">
+              <div>
+                Direct: <span className="font-mono">{dollars(direct)}</span>
+              </div>
+              <div>
+                OH&P: <span className="font-mono">{dollars(gcPreview + ohPreview + profitPreview)}</span>
+              </div>
+              <div>
+                Tax: <span className="font-mono">{dollars(taxPreview)}</span>
+              </div>
+              <div className="font-semibold">
+                Grand total: <span className="font-mono">{dollars(grandPreview)}</span>
+                {totals.totalCents > 0 && grandPreview !== totals.totalCents && (
+                  <span className="ml-1 text-fg-subtle">
+                    ({grandPreview > totals.totalCents ? '+' : ''}
+                    {dollars(grandPreview - totals.totalCents)})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="border-t border-border pt-3">
           <Label htmlFor="envSf" className="text-[12px] font-semibold">
             Total envelope SF (for cost-per-SF metric)
