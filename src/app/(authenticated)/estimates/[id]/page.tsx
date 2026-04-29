@@ -1044,6 +1044,82 @@ function MarginsEditor({
             </div>
           </div>
         )}
+        {/* OH&P totalization — mirrors the Direct cost summary card on the left.
+            Always reflects the current input values, whether saved or being edited. */}
+        <ul className="divide-y divide-border border-y border-border bg-sunken/30 text-[13.5px]">
+          <li className="flex items-center justify-between px-4 py-2">
+            <div className="min-w-0">
+              <div className="font-semibold text-fg-default">Direct cost</div>
+              <div className="text-[11.5px] text-fg-subtle">labor + material (post factors)</div>
+            </div>
+            <div className="font-mono font-semibold text-fg-default">
+              {dollars(direct)}
+            </div>
+          </li>
+          <li className="flex items-center justify-between px-4 py-2">
+            <div className="min-w-0">
+              <div className="font-semibold text-fg-default">General Conditions</div>
+              <div className="text-[11.5px] text-fg-subtle">
+                {parseOrNull(gc) ?? 0}% of direct
+              </div>
+            </div>
+            <div className="font-mono font-semibold text-fg-default">
+              {dollars(gcPreview)}
+            </div>
+          </li>
+          <li className="flex items-center justify-between px-4 py-2">
+            <div className="min-w-0">
+              <div className="font-semibold text-fg-default">Company Overhead</div>
+              <div className="text-[11.5px] text-fg-subtle">
+                {parseOrNull(oh) ?? 0}% of direct
+              </div>
+            </div>
+            <div className="font-mono font-semibold text-fg-default">
+              {dollars(ohPreview)}
+            </div>
+          </li>
+          <li className="flex items-center justify-between px-4 py-2">
+            <div className="min-w-0">
+              <div className="font-semibold text-fg-default">Profit</div>
+              <div className="text-[11.5px] text-fg-subtle">
+                {parseOrNull(profit) ?? 0}% of direct
+              </div>
+            </div>
+            <div className="font-mono font-semibold text-fg-default">
+              {dollars(profitPreview)}
+            </div>
+          </li>
+          <li className="flex items-center justify-between bg-sunken/60 px-4 py-2">
+            <span className="text-[12.5px] font-semibold uppercase tracking-wider text-fg-subtle">
+              Total OH&P
+            </span>
+            <span className="font-mono text-[14px] font-bold text-fg-default">
+              {dollars(gcPreview + ohPreview + profitPreview)}
+            </span>
+          </li>
+          {parseOrNull(tax) !== null && (
+            <li className="flex items-center justify-between px-4 py-2">
+              <div className="min-w-0">
+                <div className="font-semibold text-fg-default">Sales Tax</div>
+                <div className="text-[11.5px] text-fg-subtle">
+                  {parseOrNull(tax) ?? 0}% of direct + OH&P ({dollars(taxBase)})
+                </div>
+              </div>
+              <div className="font-mono font-semibold text-fg-default">
+                {dollars(taxPreview)}
+              </div>
+            </li>
+          )}
+          <li className="flex items-center justify-between border-t-2 border-border bg-sunken px-4 py-2.5">
+            <span className="text-[13.5px] font-bold uppercase tracking-wider text-fg-default">
+              Grand total
+            </span>
+            <span className="font-mono text-[16px] font-bold text-fg-default">
+              {dollars(grandPreview)}
+            </span>
+          </li>
+        </ul>
+
         <div className="border-t border-border pt-3">
           <Label htmlFor="envSf" className="text-[13.5px] font-semibold">
             Total envelope SF (for cost-per-SF metric)
