@@ -173,6 +173,7 @@ export function ImportTogalDialog({ open, onOpenChange, projectId, onImported }:
   const [skipped, setSkipped] = useState<string[]>([]);
   const [sheetName, setSheetName] = useState<string | null>(null);
   const [mode, setMode] = useState<'replace' | 'add'>('replace');
+  const [defaultScope, setDefaultScope] = useState<'service' | 'service_and_material'>('service_and_material');
   const [dragOver, setDragOver] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +186,7 @@ export function ImportTogalDialog({ open, onOpenChange, projectId, onImported }:
       setSkipped([]);
       setSheetName(null);
       setMode('replace');
+      setDefaultScope('service_and_material');
       setParsing(false);
       setSubmitting(false);
     }
@@ -232,7 +234,10 @@ export function ImportTogalDialog({ open, onOpenChange, projectId, onImported }:
           source: 'togal',
           fileName: file?.name ?? null,
           mode,
-          rows,
+          // Stamp the user's chosen default scope on every imported row.
+          // The user can flip individual rows after via the inline ScopeBadge
+          // in the classifications sidebar.
+          rows: rows.map((r) => ({ ...r, scope: defaultScope })),
         }),
       });
       const data = await res.json();
@@ -421,6 +426,34 @@ export function ImportTogalDialog({ open, onOpenChange, projectId, onImported }:
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Default scope */}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="import-scope" className="text-[12px] font-semibold">
+                Default scope for imported items
+              </Label>
+              <Select
+                value={defaultScope}
+                onValueChange={(v) => setDefaultScope(v as 'service' | 'service_and_material')}
+                disabled={submitting}
+              >
+                <SelectTrigger id="import-scope">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="service_and_material">
+                    Service + Material — price labor AND material
+                  </SelectItem>
+                  <SelectItem value="service">
+                    Service only — price labor only (subcontract / install only)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-fg-subtle">
+                Each row gets this scope. Toggle individual rows later by clicking the
+                badge in the classifications list.
+              </p>
             </div>
 
             {/* Dedup mode */}

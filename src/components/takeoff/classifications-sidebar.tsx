@@ -178,8 +178,10 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
               <ClassificationRowItem
                 key={r.id}
                 row={r}
+                projectId={projectId}
                 onEdit={() => setEditRow(r)}
                 onDelete={() => setDeleteRow(r)}
+                onChanged={afterMutation}
               />
             ))}
           </ul>
@@ -257,16 +259,45 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
 
 function ClassificationRowItem({
   row,
+  projectId,
   onEdit,
   onDelete,
+  onChanged,
 }: {
   row: ClassificationRow;
+  projectId: string;
   onEdit: () => void;
   onDelete: () => void;
+  onChanged: () => Promise<void> | void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [togglingScope, setTogglingScope] = useState(false);
   const qty = Number(row.quantity) || 0;
   const dot = TYPE_COLORS[row.type as ClassificationType] ?? 'bg-ink-300';
+
+  async function toggleScope(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (togglingScope) return;
+    const newScope = row.scope === 'service' ? 'service_and_material' : 'service';
+    setTogglingScope(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/classifications/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: newScope }),
+      });
+      if (!res.ok) {
+        toast.error('Failed to change scope');
+        return;
+      }
+      toast.success(
+        `Scope: ${newScope === 'service' ? 'Service only' : 'Service + Material'}`
+      );
+      await onChanged();
+    } finally {
+      setTogglingScope(false);
+    }
+  }
 
   return (
     <li
@@ -282,21 +313,37 @@ function ClassificationRowItem({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="min-w-0 flex-1 text-left font-semibold text-fg-default hover:text-blue-400"
-          >
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <span className="truncate">{row.name}</span>
-              <ScopeBadge scope={row.scope} />
+              <button
+                type="button"
+                onClick={onEdit}
+                className="min-w-0 truncate text-left font-semibold text-fg-default hover:text-blue-400"
+              >
+                {row.name}
+              </button>
+              <button
+                type="button"
+                onClick={toggleScope}
+                disabled={togglingScope}
+                title={`Click to switch · currently ${
+                  row.scope === 'service' ? 'Service only' : 'Service + Material'
+                }`}
+                className="shrink-0 disabled:opacity-50"
+              >
+                <ScopeBadge scope={row.scope} clickable />
+              </button>
             </div>
             {row.externalId && (
-              <div className="truncate text-[10.5px] font-normal text-fg-subtle">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="block truncate text-left text-[10.5px] font-normal text-fg-subtle hover:text-fg-muted"
+              >
                 {row.externalId}
-              </div>
+              </button>
             )}
-          </button>
+          </div>
           <div className="shrink-0 text-right">
             <div className="font-mono text-[12px] font-semibold text-fg-default">
               {qty.toLocaleString()}
@@ -349,7 +396,13 @@ function ClassificationRowItem({
   );
 }
 
-function ScopeBadge({ scope }: { scope: string }) {
+function ScopeBadge({
+  scope,
+  clickable = false,
+}: {
+  scope: string;
+  clickable?: boolean;
+}) {
   const s = scope as ClassificationScope;
   const label = CLASSIFICATION_SCOPE_BADGE[s] ?? '?';
   const full = CLASSIFICATION_SCOPE_LABELS[s] ?? scope;
@@ -359,8 +412,10 @@ function ScopeBadge({ scope }: { scope: string }) {
       : 'bg-blue-500/15 text-blue-400';
   return (
     <span
-      title={full}
-      className={`shrink-0 rounded px-1.5 py-[1px] font-mono text-[9.5px] font-bold ${color}`}
+      title={clickable ? `${full} — click to toggle` : full}
+      className={`shrink-0 rounded px-1.5 py-[1px] font-mono text-[9.5px] font-bold ${color} ${
+        clickable ? 'cursor-pointer hover:brightness-125' : ''
+      }`}
     >
       {label}
     </span>

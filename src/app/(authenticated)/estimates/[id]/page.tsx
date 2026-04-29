@@ -268,7 +268,7 @@ export default function EstimatePage({
   const needsReviewCount = estimate.lines.filter((l) => l.needsReview).length;
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-5 p-6 md:p-8">
+    <div className="w-full space-y-5 px-4 py-5 md:px-6 md:py-6 2xl:px-8">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link href={`/takeoff/${estimate.project.id}`}>
           <ArrowLeft className="h-3.5 w-3.5" /> Back to project
@@ -690,7 +690,7 @@ function LineRow({ line, onSuggest }: { line: ApiLine; onSuggest: () => void }) 
           <span>{line.externalId ?? '—'}</span>
         </div>
       </td>
-      <td className="max-w-[280px] px-3 py-1.5 text-fg-default">
+      <td className="min-w-[260px] max-w-[420px] px-3 py-1.5 text-fg-default">
         <div className="truncate">{line.name}</div>
         {line.productivityEntry && (
           <div className="truncate text-[10.5px] text-fg-subtle">
