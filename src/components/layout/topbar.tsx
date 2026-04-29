@@ -12,6 +12,8 @@ import {
   LogOut,
   User as UserIcon,
   HelpCircle,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -70,6 +72,27 @@ export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
   const crumbs = buildCrumbs(pathname);
   const [aiOpen, setAiOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  // Hydrate theme state from the class set by the inline <head> script.
+  useEffect(() => {
+    setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    if (next === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('theme', next);
+    } catch {
+      /* private browsing — ignore */
+    }
+  }
 
   // Global ⌘K / Ctrl+K
   useEffect(() => {
@@ -156,6 +179,20 @@ export function Topbar({ userName, userEmail, userRole }: TopbarProps) {
         >
           <Sparkles className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Ask AI</span>
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          type="button"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={toggleTheme}
+          className="relative grid h-[38px] w-[38px] place-items-center rounded-lg border border-border bg-surface text-fg-muted transition-colors hover:border-border-strong hover:bg-sunken hover:text-fg-default"
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-[17px] w-[17px]" />
+          ) : (
+            <Moon className="h-[17px] w-[17px]" />
+          )}
         </button>
 
         {/* Notifications */}
