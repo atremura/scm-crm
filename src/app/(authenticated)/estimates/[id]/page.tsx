@@ -50,11 +50,13 @@ type ApiLine = {
   laborCostCents: number | null;
   materialCostCents: number | null;
   materialBreakdown: Array<{
+    materialId?: string | null;
     name: string;
     qty: number;
     uom: string;
     unitCostCents: number;
     wastePercent: number;
+    subtotalCents?: number;
   }> | null;
   subtotalCents: number | null;
   groupName: string | null;
@@ -795,12 +797,27 @@ function LineRow({
           format={(v) => `$${v.toFixed(2)}`}
           step="0.01"
           onSave={async (v) => {
-            // Recompute material cost with the existing waste%
+            // Rebuild the breakdown so BOTH unitCostCents and total agree.
             const w = wastePct ?? 5;
             const qty = Number(line.quantity);
             const wasted = Math.round(qty * (1 + w / 100) * 10000) / 10000;
-            const total = Math.round(wasted * v * 100);
-            await patchLine({ materialCostCents: total });
+            const newUnitCents = Math.round(v * 100);
+            const newTotalCents = Math.round(wasted * newUnitCents);
+            const existing = line.materialBreakdown?.[0];
+            await patchLine({
+              materialId: null, // clears stale breakdown
+              customMaterials: [
+                {
+                  materialId: existing?.materialId ?? null,
+                  name: existing?.name ?? line.name,
+                  qty: wasted,
+                  uom: existing?.uom ?? line.uom,
+                  unitCostCents: newUnitCents,
+                  wastePercent: w,
+                  subtotalCents: newTotalCents,
+                },
+              ],
+            });
           }}
           width="w-20"
           hint="Edit $/unit — material cost = qty × (1+waste) × $/u"
@@ -816,9 +833,33 @@ function LineRow({
             `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           }
           step="0.01"
-          onSave={(v) => patchLine({ materialCostCents: Math.round(v * 100) })}
+          onSave={async (v) => {
+            // Override total. If we have a breakdown, back-derive a new
+            // unit cost so the $/u column stays consistent on screen.
+            const newTotalCents = Math.round(v * 100);
+            const existing = line.materialBreakdown?.[0];
+            if (!existing || !existing.qty || existing.qty <= 0) {
+              await patchLine({ materialCostCents: newTotalCents });
+              return;
+            }
+            const newUnitCents = Math.round(newTotalCents / existing.qty);
+            await patchLine({
+              materialId: null,
+              customMaterials: [
+                {
+                  materialId: existing.materialId ?? null,
+                  name: existing.name,
+                  qty: existing.qty,
+                  uom: existing.uom,
+                  unitCostCents: newUnitCents,
+                  wastePercent: existing.wastePercent,
+                  subtotalCents: newTotalCents,
+                },
+              ],
+            });
+          }}
           width="w-28"
-          hint="Override total material cost"
+          hint="Override total material cost — keeps $/u in sync"
         />
       </td>
       <td className="px-3 py-1.5 text-right font-mono font-semibold">
