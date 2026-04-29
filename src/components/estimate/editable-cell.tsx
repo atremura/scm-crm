@@ -88,14 +88,14 @@ export function EditableCell({
           if (e.key === 'Escape') setEditing(false);
         }}
         disabled={saving}
-        className={`h-6 ${width} rounded border border-blue-500/60 bg-canvas px-1.5 text-${align} font-mono text-[12px] text-fg-default outline-none focus:border-blue-500`}
+        className={`h-6 ${width} rounded border border-blue-500/60 bg-canvas px-1.5 text-${align} font-mono text-[13.5px] text-fg-default outline-none focus:border-blue-500`}
       />
     );
   }
 
   if (readOnly) {
     return (
-      <span className={`block text-${align} font-mono text-[12px] text-fg-muted`}>
+      <span className={`block text-${align} font-mono text-[13.5px] text-fg-muted`}>
         {value !== null ? format(value) : placeholder}
       </span>
     );
@@ -109,7 +109,7 @@ export function EditableCell({
         setEditing(true);
       }}
       title={hint ?? 'Click to edit'}
-      className={`block w-full text-${align} font-mono text-[12px] text-fg-default hover:text-blue-400 hover:underline decoration-dotted underline-offset-2`}
+      className={`block w-full text-${align} font-mono text-[13.5px] text-fg-default hover:text-blue-400 hover:underline decoration-dotted underline-offset-2`}
     >
       {value !== null ? format(value) : placeholder}
     </button>
