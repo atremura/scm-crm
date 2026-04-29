@@ -272,8 +272,40 @@ function ClassificationRowItem({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [togglingScope, setTogglingScope] = useState(false);
+  const [editingQty, setEditingQty] = useState(false);
+  const [qtyDraft, setQtyDraft] = useState('');
+  const [savingQty, setSavingQty] = useState(false);
   const qty = Number(row.quantity) || 0;
   const dot = TYPE_COLORS[row.type as ClassificationType] ?? 'bg-ink-300';
+
+  async function saveQuantity() {
+    const newQty = parseFloat(qtyDraft);
+    if (!Number.isFinite(newQty) || newQty < 0) {
+      setEditingQty(false);
+      return;
+    }
+    if (newQty === qty) {
+      setEditingQty(false);
+      return;
+    }
+    setSavingQty(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/classifications/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: newQty }),
+      });
+      if (!res.ok) {
+        toast.error('Failed to update quantity');
+        return;
+      }
+      toast.success(`Quantity → ${newQty.toLocaleString()} ${row.uom}`);
+      await onChanged();
+    } finally {
+      setSavingQty(false);
+      setEditingQty(false);
+    }
+  }
 
   async function toggleScope(e: React.MouseEvent) {
     e.stopPropagation();
@@ -345,9 +377,35 @@ function ClassificationRowItem({
             )}
           </div>
           <div className="shrink-0 text-right">
-            <div className="font-mono text-[12px] font-semibold text-fg-default">
-              {qty.toLocaleString()}
-            </div>
+            {editingQty ? (
+              <input
+                type="number"
+                inputMode="decimal"
+                step="any"
+                autoFocus
+                value={qtyDraft}
+                onChange={(e) => setQtyDraft(e.target.value)}
+                onBlur={saveQuantity}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+                  if (e.key === 'Escape') setEditingQty(false);
+                }}
+                disabled={savingQty}
+                className="h-6 w-20 rounded border border-blue-500/50 bg-canvas px-1.5 text-right font-mono text-[12px] text-fg-default outline-none focus:border-blue-500"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setQtyDraft(String(qty));
+                  setEditingQty(true);
+                }}
+                className="block w-full text-right font-mono text-[12px] font-semibold text-fg-default hover:text-blue-400"
+                title="Click to edit"
+              >
+                {qty.toLocaleString()}
+              </button>
+            )}
             <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
               {row.uom}
             </div>

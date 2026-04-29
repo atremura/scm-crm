@@ -35,6 +35,7 @@ import {
   type RequiredEquipment,
 } from '@/components/estimate/project-context-card';
 import { AiPassesBar } from '@/components/estimate/ai-passes-bar';
+import { EditableCell } from '@/components/estimate/editable-cell';
 
 type ApiLine = {
   id: string;
@@ -458,6 +459,8 @@ export default function EstimatePage({
                     isCollapsed={isCollapsed}
                     onToggle={() => toggleSection(g.section)}
                     onSuggest={(l) => setSuggestLine(l)}
+                    estimateId={estimate.id}
+                    onLineSaved={loadEstimate}
                   />
                 );
               })}
@@ -613,6 +616,8 @@ function SectionGroup({
   isCollapsed,
   onToggle,
   onSuggest,
+  estimateId,
+  onLineSaved,
 }: {
   section: string;
   lines: ApiLine[];
@@ -620,6 +625,8 @@ function SectionGroup({
   isCollapsed: boolean;
   onToggle: () => void;
   onSuggest: (l: ApiLine) => void;
+  estimateId: string;
+  onLineSaved: () => Promise<void> | void;
 }) {
   return (
     <>
@@ -649,7 +656,15 @@ function SectionGroup({
         </td>
       </tr>
       {!isCollapsed &&
-        lines.map((l) => <LineRow key={l.id} line={l} onSuggest={() => onSuggest(l)} />)}
+        lines.map((l) => (
+          <LineRow
+            key={l.id}
+            line={l}
+            estimateId={estimateId}
+            onSuggest={() => onSuggest(l)}
+            onSaved={onLineSaved}
+          />
+        ))}
       {!isCollapsed && (
         <tr className="border-t border-border bg-sunken/30">
           <td colSpan={6} className="px-3 py-1.5 text-right text-[10.5px] font-semibold uppercase tracking-wider text-fg-subtle">
@@ -675,9 +690,35 @@ function SectionGroup({
   );
 }
 
-function LineRow({ line, onSuggest }: { line: ApiLine; onSuggest: () => void }) {
+function LineRow({
+  line,
+  estimateId,
+  onSuggest,
+  onSaved,
+}: {
+  line: ApiLine;
+  estimateId: string;
+  onSuggest: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
   const matPerUnit = line.materialBreakdown?.[0]?.unitCostCents ?? null;
   const wastePct = line.materialBreakdown?.[0]?.wastePercent ?? null;
+
+  async function patchLine(payload: any) {
+    const res = await fetch(`/api/estimates/${estimateId}/lines/${line.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(d?.error ?? 'Failed to save');
+      return;
+    }
+    toast.success('Line updated');
+    await onSaved();
+  }
+
   return (
     <tr
       className={`border-t border-border hover:bg-sunken/30 ${
@@ -702,32 +743,83 @@ function LineRow({ line, onSuggest }: { line: ApiLine; onSuggest: () => void }) 
         <div className="truncate">{line.laborTrade?.name ?? '—'}</div>
         <ScopeBadge scope={line.scope} />
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">
-        {Number(line.quantity).toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        })}
+      <td className="px-3 py-1.5">
+        <EditableCell
+          value={Number(line.quantity)}
+          format={(v) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          step="any"
+          onSave={(v) => patchLine({ quantity: v })}
+          width="w-24"
+          hint="Edit quantity — labor + material recompute"
+        />
       </td>
       <td className="px-3 py-1.5 uppercase tracking-wide text-fg-subtle">{line.uom}</td>
-      <td className="px-3 py-1.5 text-right font-mono text-fg-muted">
-        {line.mhPerUnit !== null ? Number(line.mhPerUnit).toFixed(3) : '—'}
+      <td className="px-3 py-1.5">
+        <EditableCell
+          value={line.mhPerUnit !== null ? Number(line.mhPerUnit) : null}
+          format={(v) => v.toFixed(3)}
+          step="0.0001"
+          onSave={(v) => patchLine({ mhPerUnit: v })}
+          width="w-20"
+          hint="Edit MH/unit — labor recomputes"
+        />
       </td>
-      <td className="px-3 py-1.5 text-right font-mono text-fg-muted">
-        {line.laborRateCents !== null ? `$${(line.laborRateCents / 100).toFixed(0)}` : '—'}
+      <td className="px-3 py-1.5">
+        <EditableCell
+          value={line.laborRateCents !== null ? line.laborRateCents / 100 : null}
+          format={(v) => `$${v.toFixed(0)}`}
+          step="0.01"
+          onSave={(v) => patchLine({ laborRateCents: Math.round(v * 100) })}
+          width="w-20"
+          hint="Edit $/hr — labor cost recomputes"
+        />
       </td>
       <td className="px-3 py-1.5 text-right font-mono">
         {line.laborHours !== null ? Number(line.laborHours).toFixed(2) : '—'}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">
-        {dollars(line.laborCostCents)}
+      <td className="px-3 py-1.5">
+        <EditableCell
+          value={line.laborCostCents !== null ? line.laborCostCents / 100 : null}
+          format={(v) =>
+            `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          }
+          step="0.01"
+          onSave={(v) => patchLine({ laborCostCents: Math.round(v * 100) })}
+          width="w-28"
+          hint="Override labor cost (locks the row)"
+        />
       </td>
       <td className="px-3 py-1.5 text-right font-mono text-fg-muted">
-        {matPerUnit !== null ? `$${(matPerUnit / 100).toFixed(2)}` : '—'}
+        <EditableCell
+          value={matPerUnit !== null ? matPerUnit / 100 : null}
+          format={(v) => `$${v.toFixed(2)}`}
+          step="0.01"
+          onSave={async (v) => {
+            // Recompute material cost with the existing waste%
+            const w = wastePct ?? 5;
+            const qty = Number(line.quantity);
+            const wasted = Math.round(qty * (1 + w / 100) * 10000) / 10000;
+            const total = Math.round(wasted * v * 100);
+            await patchLine({ materialCostCents: total });
+          }}
+          width="w-20"
+          hint="Edit $/unit — material cost = qty × (1+waste) × $/u"
+        />
         {wastePct !== null && wastePct > 0 && (
           <span className="ml-1 text-[10px] text-fg-subtle">+{wastePct}%</span>
         )}
       </td>
-      <td className="px-3 py-1.5 text-right font-mono">
-        {dollars(line.materialCostCents)}
+      <td className="px-3 py-1.5">
+        <EditableCell
+          value={line.materialCostCents !== null ? line.materialCostCents / 100 : null}
+          format={(v) =>
+            `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          }
+          step="0.01"
+          onSave={(v) => patchLine({ materialCostCents: Math.round(v * 100) })}
+          width="w-28"
+          hint="Override total material cost"
+        />
       </td>
       <td className="px-3 py-1.5 text-right font-mono font-semibold">
         {dollars(line.subtotalCents)}
