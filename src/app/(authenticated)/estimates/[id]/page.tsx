@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   Save,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -869,15 +870,45 @@ function LineRow({
         <ConfidenceBadge confidence={line.aiConfidence} needsReview={line.needsReview} />
       </td>
       <td className="pr-2 text-right">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
-          onClick={onSuggest}
-          title="Ask Claude for a better match"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-blue-400" />
-        </Button>
+        <div className="flex items-center justify-end gap-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={onSuggest}
+            title="Ask Claude for a better match"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-blue-400" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={async () => {
+              if (
+                !confirm(
+                  `Delete "${line.name}"?\n\nThis removes the line from the estimate (and any AI-derivative children hanging under it).`
+                )
+              ) {
+                return;
+              }
+              const res = await fetch(
+                `/api/estimates/${estimateId}/lines/${line.id}`,
+                { method: 'DELETE' }
+              );
+              if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                toast.error(d?.error ?? 'Delete failed');
+                return;
+              }
+              toast.success(`Removed "${line.name}"`);
+              await onSaved();
+            }}
+            title="Delete this line"
+          >
+            <Trash2 className="h-3.5 w-3.5 text-danger-500" />
+          </Button>
+        </div>
       </td>
     </tr>
   );

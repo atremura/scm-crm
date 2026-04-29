@@ -275,3 +275,34 @@ export async function PATCH(
     );
   }
 }
+
+/**
+ * DELETE /api/estimates/[id]/lines/[lineId]
+ *
+ * Removes a single estimate line. The schema's parentLineId self-FK is
+ * onDelete: Cascade, so deleting a "parent" line auto-removes any
+ * IA-2 derivative children (fasteners, tape, etc) that hung under it.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string; lineId: string }> }
+) {
+  const ctx = await requireAuth();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await canDo(ctx, 'estimate', 'edit'))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const { id, lineId } = await params;
+
+  const existing = await prisma.estimateLine.findFirst({
+    where: { id: lineId, estimateId: id, companyId: ctx.companyId },
+    select: { id: true, name: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: 'Line not found' }, { status: 404 });
+  }
+
+  await prisma.estimateLine.delete({ where: { id: lineId } });
+  return NextResponse.json({ ok: true, deleted: existing.name });
+}
