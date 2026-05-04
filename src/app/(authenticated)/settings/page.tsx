@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { CompanyProposalInfoSection } from '@/components/settings/company-proposal-info-section';
 
 type Settings = Record<string, string>;
 
@@ -76,7 +77,7 @@ export default function SettingsPage() {
 
   const dirty = useMemo(
     () => Object.keys(settings).some((k) => settings[k] !== original[k]),
-    [settings, original]
+    [settings, original],
   );
 
   async function save() {
@@ -168,16 +169,17 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="mt-1 text-sm text-fg-muted">
-            Tune the rules the CRM uses for distance, AI analysis, and company
-            defaults.
+            Tune the rules the CRM uses for distance, AI analysis, and company defaults.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {dirty && (
-            <span className="text-[12px] text-warn-500">Unsaved changes</span>
-          )}
+          {dirty && <span className="text-[12px] text-warn-500">Unsaved changes</span>}
           <Button onClick={save} disabled={!dirty || saving}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
             {saving ? 'Saving…' : 'Save changes'}
           </Button>
         </div>
@@ -205,6 +207,9 @@ export default function SettingsPage() {
           </FormField>
         </div>
       </Section>
+
+      {/* Proposal header — company contact info for client-facing exports */}
+      <CompanyProposalInfoSection />
 
       {/* Base location */}
       <Section
@@ -254,8 +259,7 @@ export default function SettingsPage() {
             </FormField>
           </div>
           <p className="text-[11.5px] text-fg-muted">
-            Bids are auto-rejected when the project address is farther than the
-            threshold below.
+            Bids are auto-rejected when the project address is farther than the threshold below.
           </p>
         </div>
       </Section>
@@ -267,7 +271,9 @@ export default function SettingsPage() {
         description="Distance threshold and preferred work types"
       >
         <div className="space-y-5">
-          <FormField label={`Maximum distance from base — currently ${settings.max_distance_miles ?? '0'} mi`}>
+          <FormField
+            label={`Maximum distance from base — currently ${settings.max_distance_miles ?? '0'} mi`}
+          >
             <input
               type="range"
               min={10}
@@ -309,17 +315,15 @@ export default function SettingsPage() {
                 Auto-create bids from Gmail
               </div>
               <div className="mt-0.5 text-[11.5px] text-fg-muted">
-                When enabled, each synced email that meets the rules below
-                becomes a bid automatically. Emails that don&apos;t meet the rules
-                become bids too, but flagged as <span className="font-semibold text-danger-500">auto-rejected</span> with
-                the reason noted.
+                When enabled, each synced email that meets the rules below becomes a bid
+                automatically. Emails that don&apos;t meet the rules become bids too, but flagged as{' '}
+                <span className="font-semibold text-danger-500">auto-rejected</span> with the reason
+                noted.
               </div>
             </div>
             <Switch
               checked={settings.auto_create_bids === 'true'}
-              onCheckedChange={(v) =>
-                update('auto_create_bids', v ? 'true' : 'false')
-              }
+              onCheckedChange={(v) => update('auto_create_bids', v ? 'true' : 'false')}
             />
           </div>
 
@@ -353,9 +357,7 @@ export default function SettingsPage() {
                     .split(',')
                     .map((s) => s.trim().toUpperCase())
                     .filter(Boolean)}
-                  onChange={(arr) =>
-                    update('auto_allowed_states', arr.join(', '))
-                  }
+                  onChange={(arr) => update('auto_allowed_states', arr.join(', '))}
                 />
               </FormField>
 
@@ -369,12 +371,12 @@ export default function SettingsPage() {
                         type="button"
                         onClick={() => update('auto_qualified_status', s)}
                         className={`rounded px-3 py-1 text-[12px] font-semibold capitalize transition ${
-                          active
-                            ? 'bg-surface text-fg-default shadow-sm'
-                            : 'text-fg-muted'
+                          active ? 'bg-surface text-fg-default shadow-sm' : 'text-fg-muted'
                         }`}
                       >
-                        {s === 'new' ? 'New (needs manual qualify)' : 'Qualified (straight to takeoff)'}
+                        {s === 'new'
+                          ? 'New (needs manual qualify)'
+                          : 'Qualified (straight to takeoff)'}
                       </button>
                     );
                   })}
@@ -382,21 +384,27 @@ export default function SettingsPage() {
               </FormField>
 
               <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-3 text-[11.5px] leading-relaxed text-fg-muted">
-                <div className="mb-1.5 font-semibold text-blue-500">
-                  How the rules combine:
-                </div>
+                <div className="mb-1.5 font-semibold text-blue-500">How the rules combine:</div>
                 <div className="space-y-1 font-mono text-[11px]">
                   <div>
-                    <span className="text-success-500">✓</span> distance ≤ {settings.max_distance_miles ?? '100'} mi → <span className="text-success-500">ACCEPT</span> (any state)
+                    <span className="text-success-500">✓</span> distance ≤{' '}
+                    {settings.max_distance_miles ?? '100'} mi →{' '}
+                    <span className="text-success-500">ACCEPT</span> (any state)
                   </div>
                   <div>
-                    <span className="text-danger-500">✗</span> distance &gt; {settings.max_distance_miles ?? '100'} mi → <span className="text-danger-500">REJECT</span> (even if state is allowed)
+                    <span className="text-danger-500">✗</span> distance &gt;{' '}
+                    {settings.max_distance_miles ?? '100'} mi →{' '}
+                    <span className="text-danger-500">REJECT</span> (even if state is allowed)
                   </div>
                   <div>
-                    <span className="text-warn-500">?</span> no geocodable address → fallback to state list: state ∈ allowed → <span className="text-success-500">ACCEPT</span>, else <span className="text-danger-500">REJECT</span>
+                    <span className="text-warn-500">?</span> no geocodable address → fallback to
+                    state list: state ∈ allowed → <span className="text-success-500">ACCEPT</span>,
+                    else <span className="text-danger-500">REJECT</span>
                   </div>
                   <div>
-                    <span className="text-warn-500">?</span> confidence &lt; {settings.auto_min_confidence ?? '70'}% → <span className="text-fg-muted">needs manual review</span> (not auto-rejected)
+                    <span className="text-warn-500">?</span> confidence &lt;{' '}
+                    {settings.auto_min_confidence ?? '70'}% →{' '}
+                    <span className="text-fg-muted">needs manual review</span> (not auto-rejected)
                   </div>
                 </div>
               </div>
@@ -413,12 +421,10 @@ export default function SettingsPage() {
       >
         <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-sunken/40 px-4 py-3">
           <div>
-            <div className="text-[13px] font-semibold text-fg-default">
-              Auto-analyze new bids
-            </div>
+            <div className="text-[13px] font-semibold text-fg-default">Auto-analyze new bids</div>
             <div className="mt-0.5 text-[11.5px] text-fg-muted">
-              When enabled, every new bid runs through the AI for a match score
-              and a recommendation as soon as it arrives.
+              When enabled, every new bid runs through the AI for a match score and a recommendation
+              as soon as it arrives.
             </div>
           </div>
           <Switch
@@ -628,14 +634,17 @@ function GmailSection() {
               disabled={disconnecting}
               className="text-danger-500 hover:bg-danger-500/10 hover:text-danger-500"
             >
-              {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unplug className="h-3.5 w-3.5" />}
+              {disconnecting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Unplug className="h-3.5 w-3.5" />
+              )}
               Disconnect
             </Button>
           </div>
           <p className="text-[11.5px] text-fg-muted">
-            Use the <strong>Sync Gmail</strong> button on the Bids page to pull
-            recent bid invites. Auto-sync (background polling) ships in a future
-            update — for now it&apos;s on-demand.
+            Use the <strong>Sync Gmail</strong> button on the Bids page to pull recent bid invites.
+            Auto-sync (background polling) ships in a future update — for now it&apos;s on-demand.
           </p>
         </div>
       ) : (
@@ -643,12 +652,10 @@ function GmailSection() {
           <div className="flex items-start gap-3 rounded-md border border-warn-500/30 bg-warn-500/5 px-4 py-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warn-500" />
             <div className="flex-1">
-              <div className="text-[13px] font-semibold text-fg-default">
-                Not connected yet
-              </div>
+              <div className="text-[13px] font-semibold text-fg-default">Not connected yet</div>
               <div className="mt-0.5 text-[11.5px] text-fg-muted">
-                Authorize the CRM to read your Gmail (read-only) so it can pull
-                bid invitations and run them through the AI extractor.
+                Authorize the CRM to read your Gmail (read-only) so it can pull bid invitations and
+                run them through the AI extractor.
               </div>
             </div>
           </div>
@@ -659,9 +666,9 @@ function GmailSection() {
             </a>
           </Button>
           <p className="text-[10.5px] text-fg-subtle">
-            Scopes requested: <span className="font-mono">gmail.readonly</span> + your email address.
-            Tokens are stored on your user record and can be revoked here at any
-            time, or in your Google account settings.
+            Scopes requested: <span className="font-mono">gmail.readonly</span> + your email
+            address. Tokens are stored on your user record and can be revoked here at any time, or
+            in your Google account settings.
           </p>
         </div>
       )}

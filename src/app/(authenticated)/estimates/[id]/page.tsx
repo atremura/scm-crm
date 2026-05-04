@@ -17,7 +17,19 @@ import {
   ChevronRight,
   Save,
   Trash2,
+  RefreshCw,
+  Download,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +128,14 @@ type ApiEstimate = {
     appliesTo: string;
     autoApplied: boolean;
   }>;
+  pendingClassifications: Array<{
+    id: string;
+    name: string;
+    externalId: string | null;
+    uom: string;
+    scope: string;
+    quantity: number | string;
+  }>;
 };
 
 function dollars(cents: number | null | undefined): string {
@@ -134,11 +154,7 @@ function dollarsCompact(cents: number | null | undefined): string {
   return dollars(cents);
 }
 
-export default function EstimatePage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function EstimatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [estimate, setEstimate] = useState<ApiEstimate | null>(null);
@@ -147,6 +163,7 @@ export default function EstimatePage({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [savingMargins, setSavingMargins] = useState(false);
   const [repricing, setRepricing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   async function loadEstimate() {
     const res = await fetch(`/api/estimates/${id}`);
@@ -194,11 +211,8 @@ export default function EstimatePage({
         const material = lines.reduce((s, l) => s + (l.materialCostCents ?? 0), 0);
         const mh = lines.reduce(
           (s, l) =>
-            s +
-            (l.laborHours !== null && l.laborHours !== undefined
-              ? Number(l.laborHours)
-              : 0),
-          0
+            s + (l.laborHours !== null && l.laborHours !== undefined ? Number(l.laborHours) : 0),
+          0,
         );
         return {
           section,
@@ -226,8 +240,7 @@ export default function EstimatePage({
         impactPercent: Number(f.impactPercent),
       })),
       {
-        markupPercent:
-          estimate.markupPercent !== null ? Number(estimate.markupPercent) : null,
+        markupPercent: estimate.markupPercent !== null ? Number(estimate.markupPercent) : null,
         overheadPercent:
           estimate.overheadPercent !== null ? Number(estimate.overheadPercent) : null,
         generalConditionsPercent:
@@ -235,12 +248,10 @@ export default function EstimatePage({
             ? Number(estimate.generalConditionsPercent)
             : null,
         contingencyPercent:
-          estimate.contingencyPercent !== null
-            ? Number(estimate.contingencyPercent)
-            : null,
+          estimate.contingencyPercent !== null ? Number(estimate.contingencyPercent) : null,
         salesTaxPercent:
           estimate.salesTaxPercent !== null ? Number(estimate.salesTaxPercent) : null,
-      }
+      },
     );
   }, [estimate]);
 
@@ -306,9 +317,101 @@ export default function EstimatePage({
             </p>
           )}
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Download className="h-3.5 w-3.5" />
+              Export
+              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel>Client-facing (no OH&P)</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+              <a href={`/api/estimates/${estimate.id}/export?type=client&format=xlsx`} download>
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel — Client proposal
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <FileText className="h-3.5 w-3.5" />
+              PDF — Client proposal
+              <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Internal (full breakdown)</DropdownMenuLabel>
+            <DropdownMenuItem asChild>
+              <a href={`/api/estimates/${estimate.id}/export?type=internal&format=xlsx`} download>
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel — Internal
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <FileText className="h-3.5 w-3.5" />
+              PDF — Internal
+              <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Needs-review banner */}
+      {estimate.pendingClassifications.length > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-[13px]">
+          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+          <div className="flex-1">
+            <div className="font-semibold text-fg-default">
+              {estimate.pendingClassifications.length} new classification
+              {estimate.pendingClassifications.length === 1 ? '' : 's'} in Takeoff
+            </div>
+            <div className="text-[13.5px] text-fg-muted">
+              Added after this estimate was accepted. Sync to add{' '}
+              {estimate.pendingClassifications.length === 1 ? 'it' : 'them'} as new line
+              {estimate.pendingClassifications.length === 1 ? '' : 's'} (existing lines stay
+              untouched).
+            </div>
+          </div>
+          <Button
+            size="sm"
+            disabled={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              try {
+                const res = await fetch(`/api/estimates/${estimate.id}/sync-from-takeoff`, {
+                  method: 'POST',
+                });
+                const d = await res.json();
+                if (!res.ok) {
+                  toast.error(d?.error ?? 'Sync failed');
+                  return;
+                }
+                toast.success(
+                  d.added === 1
+                    ? '1 classification added to estimate'
+                    : `${d.added} classifications added to estimate`,
+                );
+                await loadEstimate();
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          >
+            {syncing ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Syncing…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3.5 w-3.5" />
+                Sync from Takeoff
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+
       {needsReviewCount > 0 && (
         <div className="flex items-start gap-3 rounded-lg border border-warn-500/30 bg-warn-500/10 p-3 text-[13px]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn-500" />
@@ -317,9 +420,8 @@ export default function EstimatePage({
               {needsReviewCount} line{needsReviewCount === 1 ? '' : 's'} need review
             </div>
             <div className="text-[13.5px] text-fg-muted">
-              Click ✨ on a single line for a one-off check, or hit{' '}
-              <b>Re-price all</b> to send every flagged row to Claude in one batch
-              (~$0.10 per line, ~15s each, parallel ×3).
+              Click ✨ on a single line for a one-off check, or hit <b>Re-price all</b> to send
+              every flagged row to Claude in one batch (~$0.10 per line, ~15s each, parallel ×3).
             </div>
           </div>
           <Button
@@ -328,10 +430,9 @@ export default function EstimatePage({
             onClick={async () => {
               setRepricing(true);
               try {
-                const res = await fetch(
-                  `/api/estimates/${estimate.id}/reprice-all`,
-                  { method: 'POST' }
-                );
+                const res = await fetch(`/api/estimates/${estimate.id}/reprice-all`, {
+                  method: 'POST',
+                });
                 const d = await res.json();
                 if (!res.ok) {
                   toast.error(d?.error ?? 'Re-price failed');
@@ -340,7 +441,7 @@ export default function EstimatePage({
                 toast.success(
                   `Processed ${d.processed} · applied ${d.applied}` +
                     (d.failed ? ` · ${d.failed} failed` : '') +
-                    ` · cost $${(d.totalCostCents / 100).toFixed(2)}`
+                    ` · cost $${(d.totalCostCents / 100).toFixed(2)}`,
                 );
                 await loadEstimate();
               } finally {
@@ -399,7 +500,7 @@ export default function EstimatePage({
         <SummaryCard
           label="Total OH&P"
           value={dollarsCompact(totals.ohpTotalCents)}
-          sub={`${(((totals.ohpTotalCents / Math.max(totals.directCostCents, 1)) * 100) || 0).toFixed(1)}% of direct`}
+          sub={`${((totals.ohpTotalCents / Math.max(totals.directCostCents, 1)) * 100 || 0).toFixed(1)}% of direct`}
         />
         <SummaryCard
           label="Grand total"
@@ -480,9 +581,7 @@ export default function EstimatePage({
             {grouped.map((g) => (
               <li key={g.section} className="flex items-center justify-between px-4 py-2">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold text-fg-default">
-                    {g.section}
-                  </div>
+                  <div className="truncate font-semibold text-fg-default">{g.section}</div>
                   <div className="text-[13.5px] text-fg-subtle">
                     {g.lines.length} line{g.lines.length === 1 ? '' : 's'} ·{' '}
                     {g.totals.mh.toFixed(1)} MH
@@ -567,9 +666,7 @@ export default function EstimatePage({
                   +{(Number(f.impactPercent) * 100).toFixed(1)}%
                 </span>
                 <span className="text-fg-subtle">·</span>
-                <span className="uppercase tracking-wide text-fg-muted">
-                  {f.appliesTo}
-                </span>
+                <span className="uppercase tracking-wide text-fg-muted">{f.appliesTo}</span>
               </span>
             ))}
           </div>
@@ -670,7 +767,10 @@ function SectionGroup({
         ))}
       {!isCollapsed && (
         <tr className="border-t border-border bg-sunken/30">
-          <td colSpan={6} className="px-3 py-1.5 text-right text-[13.5px] font-semibold uppercase tracking-wider text-fg-subtle">
+          <td
+            colSpan={6}
+            className="px-3 py-1.5 text-right text-[13.5px] font-semibold uppercase tracking-wider text-fg-subtle"
+          >
             Subtotal — {section}
           </td>
           <td className="px-3 py-1.5 text-right font-mono text-[13.5px] text-fg-muted">
@@ -887,15 +987,14 @@ function LineRow({
             onClick={async () => {
               if (
                 !confirm(
-                  `Delete "${line.name}"?\n\nThis removes the line from the estimate (and any AI-derivative children hanging under it).`
+                  `Delete "${line.name}"?\n\nThis removes the line from the estimate (and any AI-derivative children hanging under it).`,
                 )
               ) {
                 return;
               }
-              const res = await fetch(
-                `/api/estimates/${estimateId}/lines/${line.id}`,
-                { method: 'DELETE' }
-              );
+              const res = await fetch(`/api/estimates/${estimateId}/lines/${line.id}`, {
+                method: 'DELETE',
+              });
               if (!res.ok) {
                 const d = await res.json().catch(() => ({}));
                 toast.error(d?.error ?? 'Delete failed');
@@ -926,25 +1025,26 @@ function MarginsEditor({
   onSave: (patch: Record<string, number | null>) => Promise<void>;
 }) {
   const [gc, setGc] = useState(
-    estimate.generalConditionsPercent !== null
-      ? String(estimate.generalConditionsPercent)
-      : ''
+    estimate.generalConditionsPercent !== null ? String(estimate.generalConditionsPercent) : '',
   );
   const [oh, setOh] = useState(
-    estimate.overheadPercent !== null ? String(estimate.overheadPercent) : ''
+    estimate.overheadPercent !== null ? String(estimate.overheadPercent) : '',
   );
   const [profit, setProfit] = useState(
-    estimate.markupPercent !== null ? String(estimate.markupPercent) : ''
+    estimate.markupPercent !== null ? String(estimate.markupPercent) : '',
   );
   const [tax, setTax] = useState(
-    estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : ''
+    estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : '',
   );
   const [envSf, setEnvSf] = useState(
-    estimate.totalEnvelopeSf !== null ? String(estimate.totalEnvelopeSf) : ''
+    estimate.totalEnvelopeSf !== null ? String(estimate.totalEnvelopeSf) : '',
   );
 
   const dirty =
-    gc !== (estimate.generalConditionsPercent !== null ? String(estimate.generalConditionsPercent) : '') ||
+    gc !==
+      (estimate.generalConditionsPercent !== null
+        ? String(estimate.generalConditionsPercent)
+        : '') ||
     oh !== (estimate.overheadPercent !== null ? String(estimate.overheadPercent) : '') ||
     profit !== (estimate.markupPercent !== null ? String(estimate.markupPercent) : '') ||
     tax !== (estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : '') ||
@@ -968,12 +1068,22 @@ function MarginsEditor({
   const taxPreview = Math.round(taxBase * ((parseOrNull(tax) ?? 0) / 100));
   const grandPreview = taxBase + taxPreview;
 
-  const gcDirty = gc !== (estimate.generalConditionsPercent !== null ? String(estimate.generalConditionsPercent) : '');
-  const ohDirty = oh !== (estimate.overheadPercent !== null ? String(estimate.overheadPercent) : '');
-  const profitDirty = profit !== (estimate.markupPercent !== null ? String(estimate.markupPercent) : '');
-  const taxDirty = tax !== (estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : '');
+  const gcDirty =
+    gc !==
+    (estimate.generalConditionsPercent !== null ? String(estimate.generalConditionsPercent) : '');
+  const ohDirty =
+    oh !== (estimate.overheadPercent !== null ? String(estimate.overheadPercent) : '');
+  const profitDirty =
+    profit !== (estimate.markupPercent !== null ? String(estimate.markupPercent) : '');
+  const taxDirty =
+    tax !== (estimate.salesTaxPercent !== null ? String(estimate.salesTaxPercent) : '');
 
-  function liveHint(previewCents: number, savedCents: number, isDirty: boolean, suffix: string): string {
+  function liveHint(
+    previewCents: number,
+    savedCents: number,
+    isDirty: boolean,
+    suffix: string,
+  ): string {
     if (!isDirty) return `${dollars(previewCents)} ${suffix}`;
     return `${dollars(previewCents)} ${suffix} · saved was ${dollars(savedCents)}`;
   }
@@ -991,7 +1101,7 @@ function MarginsEditor({
               gcPreview,
               totals.generalConditionsCents,
               gcDirty,
-              `on ${dollars(direct)} direct`
+              `on ${dollars(direct)} direct`,
             )}
           />
           <PctInput
@@ -1013,7 +1123,12 @@ function MarginsEditor({
             hint={
               parseOrNull(tax) === null
                 ? 'leave blank to skip'
-                : liveHint(taxPreview, totals.salesTaxCents, taxDirty, `on ${dollars(taxBase)} subtotal`)
+                : liveHint(
+                    taxPreview,
+                    totals.salesTaxCents,
+                    taxDirty,
+                    `on ${dollars(taxBase)} subtotal`,
+                  )
             }
           />
         </div>
@@ -1027,7 +1142,8 @@ function MarginsEditor({
                 Direct: <span className="font-mono">{dollars(direct)}</span>
               </div>
               <div>
-                OH&P: <span className="font-mono">{dollars(gcPreview + ohPreview + profitPreview)}</span>
+                OH&P:{' '}
+                <span className="font-mono">{dollars(gcPreview + ohPreview + profitPreview)}</span>
               </div>
               <div>
                 Tax: <span className="font-mono">{dollars(taxPreview)}</span>
@@ -1052,31 +1168,21 @@ function MarginsEditor({
               <div className="font-semibold text-fg-default">Direct cost</div>
               <div className="text-[11.5px] text-fg-subtle">labor + material (post factors)</div>
             </div>
-            <div className="font-mono font-semibold text-fg-default">
-              {dollars(direct)}
-            </div>
+            <div className="font-mono font-semibold text-fg-default">{dollars(direct)}</div>
           </li>
           <li className="flex items-center justify-between px-4 py-2">
             <div className="min-w-0">
               <div className="font-semibold text-fg-default">General Conditions</div>
-              <div className="text-[11.5px] text-fg-subtle">
-                {parseOrNull(gc) ?? 0}% of direct
-              </div>
+              <div className="text-[11.5px] text-fg-subtle">{parseOrNull(gc) ?? 0}% of direct</div>
             </div>
-            <div className="font-mono font-semibold text-fg-default">
-              {dollars(gcPreview)}
-            </div>
+            <div className="font-mono font-semibold text-fg-default">{dollars(gcPreview)}</div>
           </li>
           <li className="flex items-center justify-between px-4 py-2">
             <div className="min-w-0">
               <div className="font-semibold text-fg-default">Company Overhead</div>
-              <div className="text-[11.5px] text-fg-subtle">
-                {parseOrNull(oh) ?? 0}% of direct
-              </div>
+              <div className="text-[11.5px] text-fg-subtle">{parseOrNull(oh) ?? 0}% of direct</div>
             </div>
-            <div className="font-mono font-semibold text-fg-default">
-              {dollars(ohPreview)}
-            </div>
+            <div className="font-mono font-semibold text-fg-default">{dollars(ohPreview)}</div>
           </li>
           <li className="flex items-center justify-between px-4 py-2">
             <div className="min-w-0">
@@ -1085,9 +1191,7 @@ function MarginsEditor({
                 {parseOrNull(profit) ?? 0}% of direct
               </div>
             </div>
-            <div className="font-mono font-semibold text-fg-default">
-              {dollars(profitPreview)}
-            </div>
+            <div className="font-mono font-semibold text-fg-default">{dollars(profitPreview)}</div>
           </li>
           <li className="flex items-center justify-between bg-sunken/60 px-4 py-2">
             <span className="text-[12.5px] font-semibold uppercase tracking-wider text-fg-subtle">
@@ -1105,9 +1209,7 @@ function MarginsEditor({
                   {parseOrNull(tax) ?? 0}% of direct + OH&P ({dollars(taxBase)})
                 </div>
               </div>
-              <div className="font-mono font-semibold text-fg-default">
-                {dollars(taxPreview)}
-              </div>
+              <div className="font-mono font-semibold text-fg-default">{dollars(taxPreview)}</div>
             </li>
           )}
           <li className="flex items-center justify-between border-t-2 border-border bg-sunken px-4 py-2.5">
@@ -1307,9 +1409,7 @@ function MetaCard({
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface">
-      {children}
-    </div>
+    <div className="overflow-hidden rounded-lg border border-border bg-surface">{children}</div>
   );
 }
 
@@ -1343,26 +1443,17 @@ function SourceDot({ source }: { source: string | null | undefined }) {
   const meta = source ? map[source] : null;
   if (!meta) {
     return (
-      <span
-        className="h-2 w-2 shrink-0 rounded-full bg-fg-subtle/30"
-        title="Source unknown"
-      />
+      <span className="h-2 w-2 shrink-0 rounded-full bg-fg-subtle/30" title="Source unknown" />
     );
   }
-  return (
-    <span
-      className={`h-2 w-2 shrink-0 rounded-full ${meta.color}`}
-      title={meta.label}
-    />
-  );
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${meta.color}`} title={meta.label} />;
 }
 
 function ScopeBadge({ scope }: { scope: string }) {
   const s = scope as ClassificationScope;
   const label = CLASSIFICATION_SCOPE_BADGE[s] ?? '?';
   const full = CLASSIFICATION_SCOPE_LABELS[s] ?? scope;
-  const color =
-    s === 'service' ? 'bg-warn-500/15 text-warn-500' : 'bg-blue-500/15 text-blue-400';
+  const color = s === 'service' ? 'bg-warn-500/15 text-warn-500' : 'bg-blue-500/15 text-blue-400';
   return (
     <span
       title={full}

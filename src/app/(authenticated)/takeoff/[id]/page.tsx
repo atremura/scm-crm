@@ -17,6 +17,7 @@ import {
   Calendar,
   Folder,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
 import {
   Dialog,
@@ -32,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
 import { DocumentsPanel } from '@/components/takeoff/documents-panel';
 import { TakeoffRollupPanel } from '@/components/takeoff/takeoff-rollup-panel';
+import { AiAnalysisPanel } from '@/components/takeoff/ai-analysis-panel';
 import { useSession } from 'next-auth/react';
 
 type ApiProject = {
@@ -83,13 +85,9 @@ type ApiProject = {
   }>;
 };
 
-type Tab = 'overview' | 'documents' | 'takeoff';
+type Tab = 'overview' | 'documents' | 'analysis' | 'takeoff';
 
-export default function ProjectDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const { data: session } = useSession();
@@ -135,9 +133,7 @@ export default function ProjectDetailPage({
       return;
     }
     // Re-fetch full project so the Overview updates (includes user name/email).
-    const fresh = await fetch(`/api/projects/${project.id}`).then((r) =>
-      r.ok ? r.json() : null
-    );
+    const fresh = await fetch(`/api/projects/${project.id}`).then((r) => (r.ok ? r.json() : null));
     if (fresh) setProject(fresh);
     toast.success(estimatorId ? 'Estimator assigned' : 'Estimator removed');
     setEstimatorDialogOpen(false);
@@ -252,12 +248,7 @@ export default function ProjectDetailPage({
             <UserIcon className="h-3.5 w-3.5" />
             {project.estimator ? 'Change estimator' : 'Assign estimator'}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleArchive}
-            disabled={actionLoading}
-          >
+          <Button variant="outline" size="sm" onClick={toggleArchive} disabled={actionLoading}>
             {archived ? (
               <>
                 <ArchiveRestore className="h-3.5 w-3.5" /> Restore
@@ -292,6 +283,10 @@ export default function ProjectDetailPage({
           Documents
           <Badge count={project.documents.length} />
         </TabButton>
+        <TabButton active={tab === 'analysis'} onClick={() => setTab('analysis')}>
+          <Sparkles className="h-3.5 w-3.5" />
+          AI Analysis
+        </TabButton>
         <TabButton active={tab === 'takeoff'} onClick={() => setTab('takeoff')}>
           <Ruler className="h-3.5 w-3.5" />
           Takeoff
@@ -301,6 +296,7 @@ export default function ProjectDetailPage({
 
       {tab === 'overview' && <OverviewPanel project={project} />}
       {tab === 'documents' && <DocumentsPanel projectId={project.id} />}
+      {tab === 'analysis' && <AiAnalysisPanel projectId={project.id} />}
       {tab === 'takeoff' && (
         <TakeoffRollupPanel
           project={project}
@@ -329,14 +325,12 @@ export default function ProjectDetailPage({
           <DialogHeader>
             <DialogTitle>Delete project</DialogTitle>
             <DialogDescription>
-              This permanently removes the project, all its documents, classifications,
-              and import history. This cannot be undone.
+              This permanently removes the project, all its documents, classifications, and import
+              history. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2 text-[13px]">
-            <p className="text-fg-muted">
-              To confirm, type the project name below:
-            </p>
+            <p className="text-fg-muted">To confirm, type the project name below:</p>
             <p className="rounded-md bg-sunken px-3 py-2 font-mono text-[12.5px] text-fg-default">
               {project.name}
             </p>
@@ -355,11 +349,7 @@ export default function ProjectDetailPage({
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleting}
-            >
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
               Cancel
             </Button>
             <Button
@@ -418,9 +408,7 @@ function OverviewPanel({ project }: { project: ApiProject }) {
           <Card>
             <SectionHeader title="Client" />
             <div className="space-y-2 p-5 text-[13px]">
-              <div className="font-semibold text-fg-default">
-                {project.client.companyName}
-              </div>
+              <div className="font-semibold text-fg-default">{project.client.companyName}</div>
               {project.client.contacts[0] && (
                 <div className="text-fg-muted">
                   <div>{project.client.contacts[0].name}</div>
@@ -456,7 +444,6 @@ function OverviewPanel({ project }: { project: ApiProject }) {
   );
 }
 
-
 function TabButton({
   active,
   onClick,
@@ -471,9 +458,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-all ${
-        active
-          ? 'bg-surface text-fg-default shadow-sm'
-          : 'text-fg-muted hover:text-fg-default'
+        active ? 'bg-surface text-fg-default shadow-sm' : 'text-fg-muted hover:text-fg-default'
       }`}
     >
       {children}

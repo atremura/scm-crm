@@ -11,6 +11,11 @@ import {
   Clock,
   User as UserIcon,
   ExternalLink,
+  Plus,
+  FileSpreadsheet,
+  MoreVertical,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -20,17 +25,13 @@ import {
   type ClassificationScope,
 } from '@/lib/takeoff-utils';
 import { SendToEstimateDialog } from '@/components/takeoff/send-to-estimate-dialog';
-
-type ApiClassification = {
-  id: string;
-  name: string;
-  externalId: string | null;
-  type: string;
-  uom: string;
-  scope: string;
-  quantity: number | string;
-  unitCost: number | string | null;
-};
+import {
+  ClassificationDialog,
+  DeleteDialog,
+  type ClassificationRow,
+} from '@/components/takeoff/classifications-sidebar';
+import { ImportTogalDialog } from '@/components/takeoff/import-togal-dialog';
+import { toggleClassificationScope } from '@/lib/classifications-actions';
 
 type ProjectLite = {
   id: string;
@@ -51,14 +52,14 @@ type Props = {
   onProjectChanged: () => void;
 };
 
-export function TakeoffRollupPanel({
-  project,
-  currentUserId,
-  onProjectChanged,
-}: Props) {
-  const [rows, setRows] = useState<ApiClassification[] | null>(null);
+export function TakeoffRollupPanel({ project, currentUserId, onProjectChanged }: Props) {
+  const [rows, setRows] = useState<ClassificationRow[] | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [editRow, setEditRow] = useState<ClassificationRow | null>(null);
+  const [deleteRow, setDeleteRow] = useState<ClassificationRow | null>(null);
 
   async function load() {
     const res = await fetch(`/api/projects/${project.id}/classifications`);
@@ -101,16 +102,7 @@ export function TakeoffRollupPanel({
       toast.error('No classifications to export');
       return;
     }
-    const header = [
-      'Code',
-      'Name',
-      'Scope',
-      'Type',
-      'Quantity',
-      'UOM',
-      'Unit Cost',
-      'Subtotal',
-    ];
+    const header = ['Code', 'Name', 'Scope', 'Type', 'Quantity', 'UOM', 'Unit Cost', 'Subtotal'];
     const lines = [header.join(',')];
     for (const r of rows) {
       const q = Number(r.quantity) || 0;
@@ -126,7 +118,7 @@ export function TakeoffRollupPanel({
           csvCell(r.uom),
           c ? c.toFixed(2) : '',
           subtotal ? subtotal.toFixed(2) : '',
-        ].join(',')
+        ].join(','),
       );
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -146,6 +138,16 @@ export function TakeoffRollupPanel({
 
   const isSent = project.status === 'sent_to_estimate' || !!project.sentToEstimateAt;
   const isAccepted = project.status === 'estimate_accepted';
+
+  async function afterMutation() {
+    await load();
+    onProjectChanged();
+  }
+
+  async function handleToggleScope(row: ClassificationRow) {
+    const ok = await toggleClassificationScope(project.id, row.id, row.scope);
+    if (ok) await afterMutation();
+  }
 
   async function acceptHandoff() {
     setAccepting(true);
@@ -265,7 +267,20 @@ export function TakeoffRollupPanel({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows || rows.length === 0}>
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <FileSpreadsheet className="h-3.5 w-3.5" />
+            Import
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            New classification
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportCsv}
+            disabled={!rows || rows.length === 0}
+          >
             <Download className="h-3.5 w-3.5" />
             Export CSV
           </Button>
@@ -335,14 +350,24 @@ export function TakeoffRollupPanel({
         <div className="rounded-lg border border-dashed border-border bg-sunken/40 py-12 text-center">
           <Ruler className="mx-auto h-7 w-7 text-fg-subtle" />
           <p className="mt-2 text-[13px] text-fg-muted">
-            No classifications yet. Open a document to add them.
+            No classifications yet. Create one manually, import from Togal, or open a document.
           </p>
-          <Button asChild variant="outline" size="sm" className="mt-3">
-            <Link href={`/takeoff/${project.id}?tab=documents`}>
-              <ExternalLink className="h-3.5 w-3.5" />
-              Go to documents
-            </Link>
-          </Button>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              New classification
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Import from Togal
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/takeoff/${project.id}?tab=documents`}>
+                <ExternalLink className="h-3.5 w-3.5" />
+                Go to documents
+              </Link>
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
@@ -356,6 +381,7 @@ export function TakeoffRollupPanel({
                 <th className="px-3 py-2">UOM</th>
                 <th className="px-3 py-2 text-right">Unit cost</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
+                <th className="w-[64px] px-3 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -364,25 +390,54 @@ export function TakeoffRollupPanel({
                 const c = Number(r.unitCost) || 0;
                 const sub = q * c;
                 return (
-                  <tr key={r.id} className="hover:bg-sunken/40">
+                  <tr key={r.id} className="group hover:bg-sunken/40">
                     <td className="px-3 py-1.5 font-mono text-[11px] text-fg-muted">
                       {r.externalId ?? '—'}
                     </td>
                     <td className="px-3 py-1.5 text-fg-default">{r.name}</td>
                     <td className="px-3 py-1.5">
-                      <ScopeBadge scope={r.scope} />
+                      <button
+                        type="button"
+                        onClick={() => handleToggleScope(r)}
+                        title={`Click to switch · currently ${
+                          r.scope === 'service' ? 'Service only' : 'Service + Material'
+                        }`}
+                        className="hover:opacity-80"
+                      >
+                        <ScopeBadge scope={r.scope} />
+                      </button>
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono">
                       {q.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </td>
-                    <td className="px-3 py-1.5 uppercase tracking-wide text-fg-subtle">
-                      {r.uom}
-                    </td>
+                    <td className="px-3 py-1.5 uppercase tracking-wide text-fg-subtle">{r.uom}</td>
                     <td className="px-3 py-1.5 text-right font-mono text-fg-muted">
                       {c ? `$${c.toFixed(2)}` : '—'}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono">
-                      {sub ? `$${sub.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                      {sub
+                        ? `$${sub.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => setEditRow(r)}
+                          title="Edit"
+                          className="grid h-6 w-6 place-items-center rounded text-fg-muted hover:bg-sunken hover:text-fg-default"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteRow(r)}
+                          title="Delete"
+                          className="grid h-6 w-6 place-items-center rounded text-fg-muted hover:bg-danger-500/10 hover:text-danger-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -401,6 +456,46 @@ export function TakeoffRollupPanel({
         onSent={() => {
           onProjectChanged();
           load();
+        }}
+      />
+
+      <ImportTogalDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={project.id}
+        onImported={afterMutation}
+      />
+
+      <ClassificationDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        mode="create"
+        projectId={project.id}
+        onSaved={async () => {
+          setCreateOpen(false);
+          await afterMutation();
+        }}
+      />
+
+      <ClassificationDialog
+        open={!!editRow}
+        onOpenChange={(v) => !v && setEditRow(null)}
+        mode="edit"
+        projectId={project.id}
+        existing={editRow ?? undefined}
+        onSaved={async () => {
+          setEditRow(null);
+          await afterMutation();
+        }}
+      />
+
+      <DeleteDialog
+        row={deleteRow}
+        projectId={project.id}
+        onClose={() => setDeleteRow(null)}
+        onDeleted={async () => {
+          setDeleteRow(null);
+          await afterMutation();
         }}
       />
     </div>
@@ -425,9 +520,7 @@ function SummaryCard({
       </div>
       <div className="mt-0.5 font-mono text-[18px] font-semibold text-fg-default">
         {value}
-        {uom && (
-          <span className="ml-1 text-[11px] font-normal text-fg-subtle">{uom}</span>
-        )}
+        {uom && <span className="ml-1 text-[11px] font-normal text-fg-subtle">{uom}</span>}
       </div>
       {hint && <div className="mt-0.5 text-[10.5px] text-fg-subtle">{hint}</div>}
     </div>
@@ -438,10 +531,7 @@ function ScopeBadge({ scope }: { scope: string }) {
   const s = scope as ClassificationScope;
   const label = CLASSIFICATION_SCOPE_BADGE[s] ?? '?';
   const full = CLASSIFICATION_SCOPE_LABELS[s] ?? scope;
-  const color =
-    s === 'service'
-      ? 'bg-warn-500/15 text-warn-500'
-      : 'bg-blue-500/15 text-blue-400';
+  const color = s === 'service' ? 'bg-warn-500/15 text-warn-500' : 'bg-blue-500/15 text-blue-400';
   return (
     <span
       title={full}

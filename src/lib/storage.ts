@@ -3,10 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { put, del } from '@vercel/blob';
 import { MAX_FILE_SIZE_BYTES, ALLOWED_EXTENSIONS } from '@/lib/bid-utils';
-import {
-  PROJECT_DOC_MAX_SIZE_BYTES,
-  PROJECT_DOC_ALLOWED_EXTENSIONS,
-} from '@/lib/takeoff-utils';
+import { PROJECT_DOC_MAX_SIZE_BYTES, PROJECT_DOC_ALLOWED_EXTENSIONS } from '@/lib/takeoff-utils';
 
 export { MAX_FILE_SIZE_BYTES, ALLOWED_EXTENSIONS };
 
@@ -20,7 +17,7 @@ export type SavedFile = {
 export class StorageError extends Error {
   constructor(
     message: string,
-    public readonly code: 'TOO_LARGE' | 'BAD_TYPE' | 'IO'
+    public readonly code: 'TOO_LARGE' | 'BAD_TYPE' | 'IO',
   ) {
     super(message);
     this.name = 'StorageError';
@@ -43,17 +40,14 @@ export function validateFile(file: File, opts: ValidateOpts = {}): { ext: string
 
   if (file.size > maxSize) {
     const mb = Math.round(maxSize / 1024 / 1024);
-    throw new StorageError(
-      `File "${file.name}" exceeds the ${mb}MB limit`,
-      'TOO_LARGE'
-    );
+    throw new StorageError(`File "${file.name}" exceeds the ${mb}MB limit`, 'TOO_LARGE');
   }
 
   const ext = getExtension(file.name);
   if (!allowed.includes(ext)) {
     throw new StorageError(
       `File type .${ext || '(unknown)'} not allowed. Allowed: ${allowed.join(', ')}`,
-      'BAD_TYPE'
+      'BAD_TYPE',
     );
   }
   return { ext };
@@ -84,7 +78,7 @@ function cleanPrefix(prefix: string): string {
 export async function saveFile(
   file: File,
   pathPrefix: string,
-  opts: ValidateOpts = {}
+  opts: ValidateOpts = {},
 ): Promise<SavedFile> {
   const { ext } = validateFile(file, opts);
   const storedName = `${randomUUID()}.${ext}`;
@@ -166,12 +160,17 @@ export async function saveBidFile(file: File, bidId: string): Promise<SavedFile>
  * Project (takeoff) documents: 200MB cap, broader extension whitelist
  * (dwg/dxf/rvt/zip + the usual).
  */
-export async function saveProjectFile(
-  file: File,
-  projectId: string
-): Promise<SavedFile> {
+export async function saveProjectFile(file: File, projectId: string): Promise<SavedFile> {
   return saveFile(file, `projects/${projectId}`, {
     maxSize: PROJECT_DOC_MAX_SIZE_BYTES,
     allowedExts: PROJECT_DOC_ALLOWED_EXTENSIONS,
+  });
+}
+
+/** Company logo: 5MB cap, image-only. Used in proposal headers. */
+export async function saveCompanyLogo(file: File, companyId: string): Promise<SavedFile> {
+  return saveFile(file, `companies/${companyId}/logo`, {
+    maxSize: 5 * 1024 * 1024,
+    allowedExts: ['png', 'jpg', 'jpeg', 'webp', 'svg'],
   });
 }

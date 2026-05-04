@@ -28,10 +28,7 @@ const patchSchema = z
   })
   .strict();
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireAuth();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!(await canDo(ctx, 'estimate', 'view'))) {
@@ -61,6 +58,17 @@ export async function GET(
             permitChecklist: true,
             aiContextRunAt: true,
             client: { select: { id: true, companyName: true } },
+            classifications: {
+              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                name: true,
+                externalId: true,
+                uom: true,
+                scope: true,
+                quantity: true,
+              },
+            },
           },
         },
         region: { select: { id: true, name: true, stateCode: true } },
@@ -82,7 +90,23 @@ export async function GET(
     if (!estimate) {
       return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });
     }
-    return NextResponse.json(estimate);
+
+    // Classifications added on Takeoff after the estimate was accepted —
+    // they don't have a corresponding line yet. Frontend uses this to
+    // offer "Sync from Takeoff".
+    const usedClassificationIds = new Set(
+      estimate.lines.map((l) => l.classificationId).filter((v): v is string => !!v),
+    );
+    const pendingClassifications = estimate.project.classifications.filter(
+      (c) => !usedClassificationIds.has(c.id),
+    );
+    const { classifications: _allClassifications, ...projectRest } = estimate.project;
+
+    return NextResponse.json({
+      ...estimate,
+      project: projectRest,
+      pendingClassifications,
+    });
   } catch (err) {
     console.error('[estimates.[id].GET]', err);
     return NextResponse.json({ error: 'Failed to fetch estimate' }, { status: 500 });
@@ -103,10 +127,7 @@ export async function GET(
  *   - 'lost' → sets lostAt = now (if not already set)
  *   - 'submitted_to_client' → sets submittedAt = now (if not already set)
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireAuth();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!(await canDo(ctx, 'estimate', 'edit'))) {
@@ -146,7 +167,7 @@ export async function PATCH(
     console.error('[estimates.[id].PATCH]', err);
     return NextResponse.json(
       { error: err?.message ?? 'Failed to update estimate' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -44,6 +44,7 @@ import {
   type Uom,
 } from '@/lib/takeoff-utils';
 import { ImportTogalDialog } from '@/components/takeoff/import-togal-dialog';
+import { toggleClassificationScope } from '@/lib/classifications-actions';
 
 export type ClassificationRow = {
   id: string;
@@ -99,9 +100,7 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter(
-      (r) =>
-        r.name.toLowerCase().includes(q) ||
-        r.externalId?.toLowerCase().includes(q)
+      (r) => r.name.toLowerCase().includes(q) || r.externalId?.toLowerCase().includes(q),
     );
   }, [rows, search]);
 
@@ -130,9 +129,7 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
         <div className="flex-1 text-[13px] font-semibold text-fg-default">
           Classifications
           {rows !== null && (
-            <span className="ml-1.5 text-[11.5px] font-normal text-fg-subtle">
-              ({rows.length})
-            </span>
+            <span className="ml-1.5 text-[11.5px] font-normal text-fg-subtle">({rows.length})</span>
           )}
         </div>
         <Button
@@ -202,7 +199,11 @@ export function ClassificationsSidebar({ projectId, onChange }: Props) {
               <div className="mt-1 flex items-center justify-between border-t border-border pt-1">
                 <span className="font-semibold text-fg-default">Est. value</span>
                 <span className="font-mono font-semibold text-fg-default">
-                  ${totals.cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $
+                  {totals.cost.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
             )}
@@ -310,22 +311,10 @@ function ClassificationRowItem({
   async function toggleScope(e: React.MouseEvent) {
     e.stopPropagation();
     if (togglingScope) return;
-    const newScope = row.scope === 'service' ? 'service_and_material' : 'service';
     setTogglingScope(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/classifications/${row.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: newScope }),
-      });
-      if (!res.ok) {
-        toast.error('Failed to change scope');
-        return;
-      }
-      toast.success(
-        `Scope: ${newScope === 'service' ? 'Service only' : 'Service + Material'}`
-      );
-      await onChanged();
+      const ok = await toggleClassificationScope(projectId, row.id, row.scope);
+      if (ok) await onChanged();
     } finally {
       setTogglingScope(false);
     }
@@ -406,14 +395,10 @@ function ClassificationRowItem({
                 {qty.toLocaleString()}
               </button>
             )}
-            <div className="text-[10px] uppercase tracking-wider text-fg-subtle">
-              {row.uom}
-            </div>
+            <div className="text-[10px] uppercase tracking-wider text-fg-subtle">{row.uom}</div>
           </div>
         </div>
-        {row.note && (
-          <div className="mt-0.5 truncate text-[11px] text-fg-muted">{row.note}</div>
-        )}
+        {row.note && <div className="mt-0.5 truncate text-[11px] text-fg-muted">{row.note}</div>}
       </div>
       <div className="relative shrink-0">
         <Button
@@ -454,20 +439,11 @@ function ClassificationRowItem({
   );
 }
 
-function ScopeBadge({
-  scope,
-  clickable = false,
-}: {
-  scope: string;
-  clickable?: boolean;
-}) {
+function ScopeBadge({ scope, clickable = false }: { scope: string; clickable?: boolean }) {
   const s = scope as ClassificationScope;
   const label = CLASSIFICATION_SCOPE_BADGE[s] ?? '?';
   const full = CLASSIFICATION_SCOPE_LABELS[s] ?? scope;
-  const color =
-    s === 'service'
-      ? 'bg-warn-500/15 text-warn-500'
-      : 'bg-blue-500/15 text-blue-400';
+  const color = s === 'service' ? 'bg-warn-500/15 text-warn-500' : 'bg-blue-500/15 text-blue-400';
   return (
     <span
       title={clickable ? `${full} — click to toggle` : full}
@@ -492,26 +468,14 @@ function TotalRow({ label, value, uom }: { label: string; value: number; uom: st
   );
 }
 
-function EmptyState({
-  onCreate,
-  hasSearch,
-}: {
-  onCreate: () => void;
-  hasSearch: boolean;
-}) {
+function EmptyState({ onCreate, hasSearch }: { onCreate: () => void; hasSearch: boolean }) {
   if (hasSearch) {
-    return (
-      <div className="px-4 py-8 text-center text-[12px] text-fg-subtle">
-        No match.
-      </div>
-    );
+    return <div className="px-4 py-8 text-center text-[12px] text-fg-subtle">No match.</div>;
   }
   return (
     <div className="px-4 py-8 text-center">
       <Ruler className="mx-auto h-6 w-6 text-fg-subtle" />
-      <p className="mt-2 text-[12px] text-fg-muted">
-        No classifications yet.
-      </p>
+      <p className="mt-2 text-[12px] text-fg-muted">No classifications yet.</p>
       <Button size="sm" variant="outline" className="mt-3" onClick={onCreate}>
         <Plus className="h-3.5 w-3.5" />
         Add one
@@ -524,7 +488,7 @@ function EmptyState({
 // Create / edit dialog
 // ============================================================
 
-function ClassificationDialog({
+export function ClassificationDialog({
   open,
   onOpenChange,
   mode,
@@ -556,9 +520,11 @@ function ClassificationDialog({
       setUom((existing.uom as Uom) ?? 'SF');
       setScope((existing.scope as ClassificationScope) ?? 'service_and_material');
       setQuantity(String(existing.quantity ?? 0));
-      setUnitCost(existing.unitCost !== null && existing.unitCost !== undefined
-        ? String(existing.unitCost)
-        : '');
+      setUnitCost(
+        existing.unitCost !== null && existing.unitCost !== undefined
+          ? String(existing.unitCost)
+          : '',
+      );
       setNote(existing.note ?? '');
     } else if (mode === 'create') {
       setName('');
@@ -658,11 +624,7 @@ function ClassificationDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cls-uom">UOM</Label>
-              <Select
-                value={uom}
-                onValueChange={(v) => setUom(v as Uom)}
-                disabled={saving}
-              >
+              <Select value={uom} onValueChange={(v) => setUom(v as Uom)} disabled={saving}>
                 <SelectTrigger id="cls-uom">
                   <SelectValue />
                 </SelectTrigger>
@@ -696,8 +658,8 @@ function ClassificationDialog({
               </SelectContent>
             </Select>
             <p className="text-[11px] text-fg-subtle">
-              Tells the Estimate module whether to price labor only or labor +
-              materials when this item goes to a proposal.
+              Tells the Estimate module whether to price labor only or labor + materials when this
+              item goes to a proposal.
             </p>
           </div>
 
@@ -765,7 +727,7 @@ function ClassificationDialog({
   );
 }
 
-function DeleteDialog({
+export function DeleteDialog({
   row,
   projectId,
   onClose,
@@ -803,8 +765,8 @@ function DeleteDialog({
         <DialogHeader>
           <DialogTitle>Delete classification</DialogTitle>
           <DialogDescription>
-            Remove <b>{row?.name}</b> from this project. This won&apos;t affect the
-            library template (if it came from one) or other projects.
+            Remove <b>{row?.name}</b> from this project. This won&apos;t affect the library template
+            (if it came from one) or other projects.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

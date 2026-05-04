@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+const COLLAPSED_STORAGE_KEY = 'scm.sidebar.collapsed';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -39,9 +41,7 @@ type NavGroup = {
 const navigation: NavGroup[] = [
   {
     section: 'Main',
-    items: [
-      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    ],
+    items: [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }],
   },
   {
     section: 'Modules',
@@ -81,14 +81,23 @@ type SidebarProps = {
   companyLogoUrl?: string | null;
 };
 
-export function Sidebar({
-  userName,
-  userRole,
-  companyName,
-  companyLogoUrl,
-}: SidebarProps) {
+export function Sidebar({ userName, userRole, companyName, companyLogoUrl }: SidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1') {
+      setCollapsed(true);
+    }
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(COLLAPSED_STORAGE_KEY, next ? '1' : '0');
+      return next;
+    });
+  }
 
   const initials = (userName || 'U')
     .split(' ')
@@ -130,9 +139,7 @@ export function Sidebar({
         </div>
         {!collapsed && (
           <div className="flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-[14px] font-semibold text-white">
-              {companyName}
-            </span>
+            <span className="truncate text-[14px] font-semibold text-white">{companyName}</span>
             <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/45">
               SCM System
             </span>
@@ -151,9 +158,7 @@ export function Sidebar({
             )}
             {collapsed && <div className="h-3" />}
             {group.items.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                pathname.startsWith(item.href + '/');
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               const Icon = item.icon;
 
               return (
@@ -197,17 +202,13 @@ export function Sidebar({
         </div>
         {!collapsed && (
           <div className="flex min-w-0 flex-col leading-[1.15]">
-            <strong className="truncate text-[13px] font-semibold text-white">
-              {userName}
-            </strong>
-            <span className="truncate text-[11px] text-white/60">
-              {userRole}
-            </span>
+            <strong className="truncate text-[13px] font-semibold text-white">{userName}</strong>
+            <span className="truncate text-[11px] text-white/60">{userRole}</span>
           </div>
         )}
         <button
           type="button"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={toggleCollapsed}
           title="Toggle sidebar"
           className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-md border border-white/10 text-white/70 transition-colors hover:bg-white/[0.07] hover:text-white"
         >
