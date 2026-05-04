@@ -71,7 +71,9 @@ export async function POST(req: NextRequest) {
       ],
       messages: [{ role: 'user', content: userMessage }],
       output_config: {
-        format: zodOutputFormat(ExtractedBidSchema, 'extracted_bid'),
+        // SDK 0.90 dropped the second `name` argument from zodOutputFormat —
+        // the schema's name is now derived from the Zod type itself.
+        format: zodOutputFormat(ExtractedBidSchema),
       },
     });
   } catch (err: any) {
@@ -79,26 +81,23 @@ export async function POST(req: NextRequest) {
     if (err?.status === 401) {
       return NextResponse.json(
         { error: 'Anthropic API key is invalid or missing' },
-        { status: 500 }
+        { status: 500 },
       );
     }
     if (err?.status === 429) {
       return NextResponse.json(
         { error: 'Rate limited by the AI service. Please retry in a moment.' },
-        { status: 429 }
+        { status: 429 },
       );
     }
-    return NextResponse.json(
-      { error: err?.message ?? 'AI extraction failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message ?? 'AI extraction failed' }, { status: 500 });
   }
 
   const data = response.parsed_output;
   if (!data) {
     return NextResponse.json(
       { error: 'AI returned no parseable output. Try again with a longer email body.' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

@@ -74,7 +74,7 @@ export type AcceptResult = {
  */
 export async function acceptExtractionAsBid(
   extractionId: string,
-  opts: AcceptExtractionOpts
+  opts: AcceptExtractionOpts,
 ): Promise<AcceptResult> {
   const extraction = await prisma.bidExtraction.findFirst({
     where: { id: extractionId, companyId: opts.companyId },
@@ -224,7 +224,7 @@ export async function acceptExtractionAsBid(
       // Neon serverless cold-start can push past the default 5s easily.
       timeout: 30_000,
       maxWait: 10_000,
-    }
+    },
   );
 
   // 6. Best-effort attachment download (outside the transaction)
@@ -239,7 +239,10 @@ export async function acceptExtractionAsBid(
       for (const att of attachments) {
         try {
           const buf = await downloadAttachment(gmail, att.messageId, att.attachmentId);
-          const blob = new Blob([buf], { type: att.mimeType });
+          // Wrap the Node Buffer in a Uint8Array view so it satisfies the
+          // BlobPart union (Buffer<ArrayBufferLike> isn't assignable to
+          // ArrayBufferView<ArrayBuffer> on Node 24 + @types/node 20).
+          const blob = new Blob([new Uint8Array(buf)], { type: att.mimeType });
           const file = new File([blob], att.filename, { type: att.mimeType });
           const saved = await saveBidFile(file, result.bidId);
           await prisma.bidDocument.create({
@@ -260,10 +263,7 @@ export async function acceptExtractionAsBid(
   }
 
   // 7. Best-effort geocoding (outside the transaction) — only if not prefilled
-  if (
-    opts.prefilledLat === null ||
-    opts.prefilledLat === undefined
-  ) {
+  if (opts.prefilledLat === null || opts.prefilledLat === undefined) {
     if (bidFields.projectAddress) {
       try {
         const geo = await geocodeAddress(bidFields.projectAddress);

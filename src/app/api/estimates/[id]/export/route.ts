@@ -50,12 +50,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const variant = type === 'client' ? 'proposal' : 'internal';
   const filename = `${slug}_${variant}.xlsx`;
 
-  return new NextResponse(buffer, {
+  // Wrap the Node Buffer in a Uint8Array view so it satisfies BodyInit.
+  // Node 24 + @types/node 20 type Buffer as Buffer<ArrayBufferLike>, which TS
+  // can't reconcile with the BodyInit union (expects ArrayBuffer-backed views).
+  // The Uint8Array view shares the same memory — zero copy.
+  const body = new Uint8Array(buffer);
+  return new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="${filename}"`,
-      'Content-Length': String(buffer.byteLength),
+      'Content-Length': String(body.byteLength),
     },
   });
 }

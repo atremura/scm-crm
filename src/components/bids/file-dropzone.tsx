@@ -56,7 +56,10 @@ export function FileDropzone({ files, onFilesChange }: Props) {
     const accepted: StagedFile[] = [];
     for (const f of arr) {
       const ext = getExt(f.name);
-      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      // ALLOWED_EXTENSIONS is `as const` (readonly tuple of literal strings),
+      // so .includes() narrows its arg to the literal union. Cast to plain
+      // string[] so we can probe with an arbitrary user-supplied extension.
+      if (!(ALLOWED_EXTENSIONS as readonly string[]).includes(ext)) {
         toast.error(`"${f.name}" — type .${ext || '?'} not allowed`);
         continue;
       }
@@ -84,9 +87,7 @@ export function FileDropzone({ files, onFilesChange }: Props) {
   }
 
   function updateType(id: string, documentType: DocumentType) {
-    onFilesChange(
-      files.map((f) => (f.id === id ? { ...f, documentType } : f))
-    );
+    onFilesChange(files.map((f) => (f.id === id ? { ...f, documentType } : f)));
   }
 
   function remove(id: string) {

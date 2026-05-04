@@ -46,6 +46,12 @@ export async function buildClientExcel(data: ExportData): Promise<Buffer> {
   if (logo) {
     ws.getRow(row).height = 56;
     const imageId = wb.addImage({
+      // exceljs's index.d.ts has `declare interface Buffer extends ArrayBuffer`,
+      // which interface-merges with @types/node's Buffer and ends up demanding
+      // ArrayBuffer-only members (maxByteLength, resizable, resize, detached,
+      // transfer, transferToFixedLength) that Node's Buffer doesn't expose at
+      // the top level. Runtime is fine — exceljs reads bytes via `.buffer`.
+      // @ts-expect-error — exceljs typing limitation
       buffer: logo.buffer,
       extension: logo.extension,
     });

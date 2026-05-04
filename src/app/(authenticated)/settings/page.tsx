@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Building2,
@@ -298,8 +298,11 @@ export default function SettingsPage() {
         </div>
       </Section>
 
-      {/* Gmail */}
-      <GmailSection />
+      {/* Gmail — useSearchParams() inside requires a Suspense boundary
+          for Next 16 prerender compatibility. */}
+      <Suspense fallback={null}>
+        <GmailSection />
+      </Suspense>
 
       {/* Auto-capture rules */}
       <Section

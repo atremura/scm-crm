@@ -69,10 +69,7 @@ export async function POST(req: NextRequest) {
 
   const url = new URL(req.url);
   const customQuery = url.searchParams.get('q');
-  const limit = Math.min(
-    parseInt(url.searchParams.get('limit') || '5', 10) || 5,
-    MAX_PER_RUN
-  );
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '5', 10) || 5, MAX_PER_RUN);
 
   const user = await prisma.user.findUnique({
     where: { id: ctx.userId },
@@ -82,7 +79,7 @@ export async function POST(req: NextRequest) {
   if (!user?.gmailRefreshToken) {
     return NextResponse.json(
       { error: 'Gmail is not connected. Connect it from Settings.' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -96,10 +93,9 @@ export async function POST(req: NextRequest) {
     console.error('[gmail.sync] list failed', err?.message);
     return NextResponse.json(
       {
-        error:
-          err?.message ?? 'Failed to list Gmail messages — try reconnecting Gmail',
+        error: err?.message ?? 'Failed to list Gmail messages — try reconnecting Gmail',
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -220,7 +216,8 @@ export async function POST(req: NextRequest) {
         ],
         messages: [{ role: 'user', content: userMessage }],
         output_config: {
-          format: zodOutputFormat(ExtractedBidSchema, 'extracted_bid'),
+          // SDK 0.90 dropped the second `name` argument from zodOutputFormat.
+          format: zodOutputFormat(ExtractedBidSchema),
         },
       });
     } catch (err: any) {
@@ -290,7 +287,7 @@ export async function POST(req: NextRequest) {
         stateHint: null, // rely on address parsing inside evaluator
         confidence: Number(data.confidenceOverall) || 0,
       },
-      autoSettings
+      autoSettings,
     );
 
     if (decision.decision === 'needs_manual_review') {
@@ -323,9 +320,7 @@ export async function POST(req: NextRequest) {
 
     try {
       const status =
-        decision.decision === 'auto_create_qualified'
-          ? autoSettings.qualifiedStatus
-          : 'rejected';
+        decision.decision === 'auto_create_qualified' ? autoSettings.qualifiedStatus : 'rejected';
       const result = await acceptExtractionAsBid(extractionId, {
         companyId: ctx.companyId,
         actorUserId: ctx.userId,
@@ -357,10 +352,7 @@ export async function POST(req: NextRequest) {
         bidId: result.bidId,
         bidNumber: result.bidNumber,
         autoStatus: status === 'rejected' ? 'rejected' : 'qualified',
-        autoReason:
-          decision.decision === 'auto_create_rejected'
-            ? decision.reason
-            : undefined,
+        autoReason: decision.decision === 'auto_create_rejected' ? decision.reason : undefined,
       });
     } catch (err: any) {
       console.error('[gmail.sync auto-create]', err);
