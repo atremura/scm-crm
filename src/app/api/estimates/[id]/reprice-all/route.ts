@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import { suggestForLine } from '@/lib/estimate-ai-suggester';
-import {
-  resolveFallbackTrade,
-  sectionForDivision,
-  type MhRangeMode,
-} from '@/lib/estimate-pricing';
+import { resolveFallbackTrade, sectionForDivision, type MhRangeMode } from '@/lib/estimate-pricing';
 
 /**
  * POST /api/estimates/[id]/reprice-all
@@ -31,10 +27,7 @@ type LineResult = {
   reason?: string;
 };
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireAuth();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!(await canDo(ctx, 'estimate', 'edit'))) {
@@ -154,9 +147,7 @@ export async function POST(
         suggestedByAi: true,
         aiConfidence: sug.confidence,
         needsReview: sug.needsHumanReview,
-        notes: [sug.productivityReason, sug.materialReason]
-          .filter(Boolean)
-          .join(' · '),
+        notes: [sug.productivityReason, sug.materialReason].filter(Boolean).join(' · '),
       };
 
       // Labor
@@ -186,9 +177,9 @@ export async function POST(
             if (rate) {
               laborRateCents =
                 mode === 'low'
-                  ? rate.lowCents ?? rate.avgCents
+                  ? (rate.lowCents ?? rate.avgCents)
                   : mode === 'high'
-                    ? rate.highCents ?? rate.avgCents
+                    ? (rate.highCents ?? rate.avgCents)
                     : rate.avgCents;
             }
           }
@@ -209,20 +200,19 @@ export async function POST(
       }
 
       // Material — catalog pick
-      let breakdown: any[] = [];
+      const breakdown: any[] = [];
       let materialCostCents: number | null = null;
       if (sug.materialId) {
         const mat = materials.find((m) => m.id === sug.materialId);
         if (mat) {
           const unitCents =
             mode === 'low'
-              ? mat.lowCents ?? mat.avgCents
+              ? (mat.lowCents ?? mat.avgCents)
               : mode === 'high'
-                ? mat.highCents ?? mat.avgCents
+                ? (mat.highCents ?? mat.avgCents)
                 : mat.avgCents;
           const qty = Number(line.quantity);
-          const wastedQty =
-            Math.round(qty * (1 + mat.wastePercent / 100) * 10000) / 10000;
+          const wastedQty = Math.round(qty * (1 + mat.wastePercent / 100) * 10000) / 10000;
           const subtotal = Math.round(wastedQty * unitCents);
           breakdown.push({
             materialId: mat.id,

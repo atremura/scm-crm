@@ -33,10 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  ClientCombobox,
-  type ClientOption,
-} from '@/components/bids/client-combobox';
+import { ClientCombobox, type ClientOption } from '@/components/bids/client-combobox';
 import { VALID_WORK_TYPES, VALID_PRIORITIES } from '@/lib/bid-utils';
 
 type ExtractionResponse = {
@@ -142,7 +139,7 @@ export function ExtractEmailDialog({
     setProjectName(e.projectName ?? '');
     setProjectAddress(e.projectAddress ?? '');
     const matched = VALID_WORK_TYPES.find(
-      (w) => w.toLowerCase() === (e.workType ?? '').toLowerCase()
+      (w) => w.toLowerCase() === (e.workType ?? '').toLowerCase(),
     );
     setWorkType(matched ?? (e.workType ? 'Other' : ''));
     setResponseDeadline(e.responseDeadline ?? '');
@@ -179,7 +176,6 @@ export function ExtractEmailDialog({
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, loadExtractionId]);
 
   async function handleExtract(e: React.FormEvent) {
@@ -216,7 +212,9 @@ export function ExtractEmailDialog({
       return;
     }
     if (clientChoice === 'create' && !extraction.extractedData.companyName) {
-      toast.error("AI didn't find a company name — pick an existing client or paste a clearer email");
+      toast.error(
+        "AI didn't find a company name — pick an existing client or paste a clearer email",
+      );
       return;
     }
     if (projectName.trim().length < 3) {
@@ -394,10 +392,7 @@ export function ExtractEmailDialog({
               {(extraction.flags ?? e.flags).length > 0 && (
                 <div className="mt-2 space-y-1 border-t border-border pt-2">
                   {(extraction.flags ?? e.flags).map((flag, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 text-[11.5px] text-warn-500"
-                    >
+                    <div key={i} className="flex items-start gap-2 text-[11.5px] text-warn-500">
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                       <span>{flag}</span>
                     </div>
@@ -410,13 +405,9 @@ export function ExtractEmailDialog({
                 </span>
                 <span>
                   Tokens in/out: {extraction.inputTokens}/{extraction.outputTokens}
-                  {extraction.cacheReadTokens
-                    ? ` (${extraction.cacheReadTokens} cached)`
-                    : ''}
+                  {extraction.cacheReadTokens ? ` (${extraction.cacheReadTokens} cached)` : ''}
                 </span>
-                <span>
-                  Cost: ¢{Number(extraction.costCents ?? 0).toFixed(3)}
-                </span>
+                <span>Cost: ¢{Number(extraction.costCents ?? 0).toFixed(3)}</span>
               </div>
             </div>
 
@@ -487,10 +478,7 @@ export function ExtractEmailDialog({
                   <Label>
                     Project name <span className="text-danger-500">*</span>
                   </Label>
-                  <Input
-                    value={projectName}
-                    onChange={(ev) => setProjectName(ev.target.value)}
-                  />
+                  <Input value={projectName} onChange={(ev) => setProjectName(ev.target.value)} />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label>Address</Label>
@@ -533,9 +521,7 @@ export function ExtractEmailDialog({
                           type="button"
                           onClick={() => setPriority(p)}
                           className={`rounded px-3 py-1 text-[12px] font-semibold capitalize transition ${
-                            active
-                              ? 'bg-surface text-fg-default shadow-sm'
-                              : 'text-fg-muted'
+                            active ? 'bg-surface text-fg-default shadow-sm' : 'text-fg-muted'
                           }`}
                         >
                           {p}
@@ -549,7 +535,11 @@ export function ExtractEmailDialog({
               <div className="grid grid-cols-2 gap-3 pt-2 sm:grid-cols-4">
                 <SwitchRow label="Bond" value={bondRequired} onChange={setBondRequired} />
                 <SwitchRow label="Union" value={unionJob} onChange={setUnionJob} />
-                <SwitchRow label="Prevailing wage" value={prevailingWage} onChange={setPrevailingWage} />
+                <SwitchRow
+                  label="Prevailing wage"
+                  value={prevailingWage}
+                  onChange={setPrevailingWage}
+                />
                 <SwitchRow label="Davis-Bacon" value={davisBacon} onChange={setDavisBacon} />
               </div>
 
@@ -567,11 +557,7 @@ export function ExtractEmailDialog({
               {notes && (
                 <div className="space-y-1.5 pt-1">
                   <Label>Notes</Label>
-                  <Textarea
-                    value={notes}
-                    onChange={(ev) => setNotes(ev.target.value)}
-                    rows={3}
-                  />
+                  <Textarea value={notes} onChange={(ev) => setNotes(ev.target.value)} rows={3} />
                 </div>
               )}
             </div>
@@ -582,7 +568,8 @@ export function ExtractEmailDialog({
                 <div className="mb-2 flex items-center gap-2">
                   <Mail className="h-3.5 w-3.5 text-blue-500" />
                   <span className="text-[12.5px] font-semibold uppercase tracking-[0.06em] text-blue-500">
-                    Email attachments ({extraction.attachments!.length}) — will be saved as documents
+                    Email attachments ({extraction.attachments!.length}) — will be saved as
+                    documents
                   </span>
                 </div>
                 <ul className="space-y-1.5">

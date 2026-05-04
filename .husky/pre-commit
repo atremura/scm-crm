@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+# Detect secrets before commit
+if command -v gitleaks > /dev/null 2>&1; then
+  gitleaks protect --staged --redact --verbose
+else
+  echo "⚠️  gitleaks não instalado. Recomendado: brew install gitleaks (macOS)"
+  echo "    Continuando sem verificação de secrets..."
+fi
+
+# Lint-staged for code quality
+npx lint-staged
