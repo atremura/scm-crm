@@ -164,9 +164,13 @@ Local `git config user.name` is `Andre Tremura`, `user.email` is `andre.tremura@
 
 ### Branches
 
-- `main` is the deployment branch
-- Active development on `takeoff-module` (current working branch)
-- Use feature branches per logical change. Merge to `main` only when build is green.
+- `main` is the deployment branch and the only long-lived branch
+- Feature branches use `feature/<short-name>` (e.g., `feature/cowork-import`)
+- Refactor branches use `refactor/<short-name>` (e.g., `refactor/estimate-page-split`)
+- Fix branches use `fix/<short-name>` (e.g., `fix/login-redirect`)
+- Branches are short-lived: created when starting work, merged to main when done, deleted immediately after merge
+- Never push directly to main — always go through a feature branch + merge
+- Use `git merge --ff-only` when possible (no merge commits for clean linear history)
 
 ### Build expectations
 
