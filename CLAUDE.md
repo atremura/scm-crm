@@ -8,7 +8,18 @@
 
 `scm-crm` is the codebase that will become the **Construction Management Platform** — a multi-tenant SaaS for construction companies covering the full project lifecycle from lead capture to post-delivery warranty.
 
-**Currently in production for one tenant:** JMO Carpentry (slug: `jmo`). The architecture is multi-tenant from day one but only one company actively uses the system.
+**Currently in development. Not yet deployed to production.** The only user is Andre Tremura, who runs the system locally for testing and continues developing features. The codebase is multi-tenant by design (`companyId` on every operational table), and one tenant — JMO Carpentry (slug: `jmo`) — exists in the local database with seed/test data, but no production tenants are live yet. When the time comes for production deployment, Vercel + Neon Postgres is the planned path.
+
+### Current development status
+
+- **Production deployment:** none yet (no Vercel, no live URL)
+- **Active users:** Andre only (local development)
+- **Database:** local Postgres (Neon dev branch) with test/seed data for the JMO Carpentry tenant
+- **Risk profile for changes:** low — there's no live system to break, no users to coordinate with
+- **Implication for refactors:** liberty to make breaking changes, run `prisma migrate reset` if needed, demolish deprecated code without staged rollouts
+- **When deploying to production:** plan for Vercel + Neon production branch; document that path in a future `deploy.md` when the time comes
+
+This matters because future sessions (Andre or another agent) should not over-engineer caution as if there were live users.
 
 **Owner / primary user:** Andre Tremura (AWG Constructions). Andre's preferred working language is Portuguese. The system, code, and client-facing documents are all in English. Communication with Andre in chat: Portuguese. Code, comments, commit messages, UI strings: English.
 
@@ -75,20 +86,20 @@ Project scope analysis (PDF reading, drawing analysis, scope inference) does **N
 
 ## Stack
 
-| Layer     | Tech                                                      | Notes                                                                                                                                        |
-| --------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Framework | **Next.js 16.2.4**                                        | App Router. Note: Next 16 has breaking changes vs your training data — read `node_modules/next/dist/docs/` before writing Next-specific code |
-| Language  | TypeScript 5, **strict mode ON**                          | Do not introduce `any`. Do not enable `typescript.ignoreBuildErrors`                                                                         |
-| UI        | Tailwind 4 + shadcn/ui + radix-ui + lucide-react          | shadcn primitives in `src/components/ui/`                                                                                                    |
-| Forms     | react-hook-form + Zod (`@hookform/resolvers`)             | **Installed but underused** — many existing forms use raw `useState`. Migration is gradual.                                                  |
-| Auth      | NextAuth v5 beta + `@auth/prisma-adapter` + bcryptjs      | Credentials provider + Gmail OAuth (separate flow for lead intake)                                                                           |
-| ORM       | Prisma 6.19                                               | Migrations are versioned in `prisma/migrations/`. Use `npx prisma migrate dev` for new ones; never reset (Neon production data)              |
-| Database  | PostgreSQL on Neon                                        | Multi-tenant via `companyId` column on every operational table — **NOT schema-separated, NOT RLS**                                           |
-| Storage   | Vercel Blob (`@vercel/blob`) + local `/uploads/` fallback | Abstracted via `src/lib/storage.ts`                                                                                                          |
-| AI        | `@anthropic-ai/sdk` 0.90                                  | Singleton in `src/lib/claude-client.ts`. Model: `claude-opus-4-7`. Files API beta is being phased out.                                       |
-| Email     | `googleapis` (Gmail)                                      | OAuth flow at `/api/auth/gmail/*`. Sync at `/api/gmail/sync`.                                                                                |
-| Excel     | exceljs (server) + xlsx (client parse)                    | Excel proposal exports working. PDF export is TODO.                                                                                          |
-| Deploy    | Vercel                                                    | `postinstall: prisma generate` is required (already configured)                                                                              |
+| Layer     | Tech                                                      | Notes                                                                                                                                                                                                                                                    |
+| --------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework | **Next.js 16.2.4**                                        | App Router. Note: Next 16 has breaking changes vs your training data — read `node_modules/next/dist/docs/` before writing Next-specific code                                                                                                             |
+| Language  | TypeScript 5, **strict mode ON**                          | Do not introduce `any`. Do not enable `typescript.ignoreBuildErrors`                                                                                                                                                                                     |
+| UI        | Tailwind 4 + shadcn/ui + radix-ui + lucide-react          | shadcn primitives in `src/components/ui/`                                                                                                                                                                                                                |
+| Forms     | react-hook-form + Zod (`@hookform/resolvers`)             | **Installed but underused** — many existing forms use raw `useState`. Migration is gradual.                                                                                                                                                              |
+| Auth      | NextAuth v5 beta + `@auth/prisma-adapter` + bcryptjs      | Credentials provider + Gmail OAuth (separate flow for lead intake)                                                                                                                                                                                       |
+| ORM       | Prisma 6.19                                               | Migrations are versioned in `prisma/migrations/`. Use `npx prisma migrate dev` for new ones. `prisma migrate reset` is acceptable while the system is dev-only (re-seeding the JMO test tenant) — revisit this rule once a production deployment exists. |
+| Database  | PostgreSQL on Neon                                        | Multi-tenant via `companyId` column on every operational table — **NOT schema-separated, NOT RLS**                                                                                                                                                       |
+| Storage   | Vercel Blob (`@vercel/blob`) + local `/uploads/` fallback | Abstracted via `src/lib/storage.ts`                                                                                                                                                                                                                      |
+| AI        | `@anthropic-ai/sdk` 0.90                                  | Singleton in `src/lib/claude-client.ts`. Model: `claude-opus-4-7`. Files API beta is being phased out.                                                                                                                                                   |
+| Email     | `googleapis` (Gmail)                                      | OAuth flow at `/api/auth/gmail/*`. Sync at `/api/gmail/sync`.                                                                                                                                                                                            |
+| Excel     | exceljs (server) + xlsx (client parse)                    | Excel proposal exports working. PDF export is TODO.                                                                                                                                                                                                      |
+| Deploy    | Vercel                                                    | `postinstall: prisma generate` is required (already configured)                                                                                                                                                                                          |
 
 **Always use `process.env.X` for secrets. Never hardcode. `.env.example` is committed; `.env*` files are not.**
 
