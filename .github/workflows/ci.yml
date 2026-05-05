@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel previous runs on new commits to the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (typecheck, lint, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Stub values for build-time. CI does not need real services.
+      # prisma generate only reads the schema, doesn't connect to DB.
+      DATABASE_URL: 'postgresql://stub:stub@localhost:5432/stub?schema=public'
+      AUTH_SECRET: 'ci-stub-secret-not-used-in-runtime-only-for-build-validation'
+      AUTH_URL: 'http://localhost:3000'
+      AUTH_TRUST_HOST: 'true'
+      ANTHROPIC_API_KEY: 'sk-ant-stub-not-used-during-build'
+      GOOGLE_CLIENT_ID: 'stub.apps.googleusercontent.com'
+      GOOGLE_CLIENT_SECRET: 'GOCSPX-stub'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint -- --max-warnings=300
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Report test count
+        if: always()
+        run: |
+          echo "::notice::CI completed. See logs above for details."
