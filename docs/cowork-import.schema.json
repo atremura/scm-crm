@@ -1,0 +1,573 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://awgconstructions.com/schemas/estimate/v1.0.0",
+  "title": "AWG Construction Estimate Import - Master JSON",
+  "description": "Single-document import format used by Cowork to deliver an AI-drafted estimate to the AWG Construction CRM Estimate module. One JSON document per estimate. The CRM imports this transactionally and creates rows in estimates + child tables. After human review, comparison vs final values feeds the learning loop that updates master price/productivity books.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "estimate_meta",
+    "scope_items",
+    "takeoff_items",
+    "materials",
+    "labor_rates",
+    "labor_productivity",
+    "equipment",
+    "scenarios",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version. Bump on breaking changes; CRM uses this to dispatch to the correct importer."
+    },
+    "generated_by": {
+      "type": "object",
+      "description": "Audit trail - who/what produced this JSON.",
+      "properties": {
+        "agent": { "type": "string", "examples": ["cowork-claude-opus-4-7"] },
+        "skill": { "type": "string", "examples": ["awg-estimator@1.0.0"] },
+        "skills_invoked": { "type": "array", "items": { "type": "string" } },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "source_documents": {
+          "type": "array",
+          "description": "Project documents the AI read to draft this estimate (drawings, specs, scope sheets).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "filename": { "type": "string" },
+              "kind": {
+                "type": "string",
+                "enum": ["plans", "specs", "scope", "rfp", "addendum", "photo", "other"]
+              },
+              "pages_read": { "type": "string", "examples": ["A1.0-A8.5", "all"] }
+            },
+            "required": ["filename", "kind"]
+          }
+        }
+      },
+      "required": ["agent", "generated_at"]
+    },
+    "estimate_meta": {
+      "type": "object",
+      "description": "Cover-sheet equivalent. Project header, areas, design codes.",
+      "required": [
+        "project_name",
+        "project_address",
+        "estimate_type",
+        "estimate_date",
+        "currency",
+        "region"
+      ],
+      "properties": {
+        "tenant_slug": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Multi-tenant identifier. Identifies which scm-crm tenant (company) this JSON was drafted for. Null when single-tenant or unknown; importer rejects mismatched tenants once multi-tenancy ships.",
+          "examples": ["awg", "acme-builders"]
+        },
+        "project_id": {
+          "type": ["string", "null"],
+          "description": "If set, links to existing CRM project. Null if creating new."
+        },
+        "bid_id": { "type": ["string", "null"], "description": "Originating Bid module record." },
+        "project_name": { "type": "string" },
+        "project_address": {
+          "type": "object",
+          "properties": {
+            "line1": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "zip": { "type": "string" },
+            "country": { "type": "string", "default": "US" }
+          },
+          "required": ["line1", "city", "state", "zip"]
+        },
+        "owner_gc": { "type": "string" },
+        "designer": { "type": "string" },
+        "bid_set_date": { "type": "string", "format": "date" },
+        "revision": { "type": "string" },
+        "estimate_type": {
+          "type": "string",
+          "description": "Free-form descriptor of the estimate scope.",
+          "examples": ["Roofing & Siding Systems", "Full GC", "Framing only"]
+        },
+        "estimator": { "type": "string" },
+        "estimate_date": { "type": "string", "format": "date" },
+        "currency": { "type": "string", "default": "USD" },
+        "region": {
+          "type": "string",
+          "description": "Used to look up regional price/labor adjustments.",
+          "examples": ["NH-Belmont", "MA-Boston"]
+        },
+        "design_codes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "examples": [["2018 IRC", "Snow 90 PSF", "Wind 110 MPH"]]
+        },
+        "building_type": { "type": "string", "examples": ["Single Family - 3 Story"] },
+        "areas": {
+          "type": "object",
+          "description": "Area schedule used for $/SF metrics.",
+          "properties": {
+            "finished_sf": { "type": "number", "minimum": 0 },
+            "garage_sf": { "type": "number", "minimum": 0 },
+            "porch_deck_sf": { "type": "number", "minimum": 0 },
+            "wall_gross_sf": { "type": "number", "minimum": 0 },
+            "footprint_sf": { "type": "number", "minimum": 0 },
+            "breakdown_by_floor": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "level": { "type": "string" },
+                  "area_sf": { "type": "number", "minimum": 0 }
+                },
+                "required": ["level", "area_sf"]
+              }
+            }
+          }
+        },
+        "geometry_notes": {
+          "type": "object",
+          "description": "Geometric callouts the takeoff depends on (ridge height, plate height, etc.).",
+          "additionalProperties": { "type": ["string", "number"] }
+        }
+      }
+    },
+    "scope_items": {
+      "type": "array",
+      "description": "Scope of work - inclusions, exclusions, allowances. Service codes use prefix per service skill (R-, S-, F-, C-, FC-, EX-, AL-).",
+      "items": {
+        "type": "object",
+        "required": ["service_code", "category", "description", "status", "type"],
+        "properties": {
+          "service_code": {
+            "type": "string",
+            "pattern": "^[A-Z]{1,3}-[0-9]{2,3}$",
+            "examples": ["R-01", "S-04", "F-12", "EX-03", "AL-01"]
+          },
+          "service_id": {
+            "type": ["string", "null"],
+            "description": "FK to services_catalog if matched. Null when AI proposes a new service to be reviewed."
+          },
+          "category": {
+            "type": "string",
+            "description": "Section header in the scope, e.g. ROOFING SYSTEM, SIDING SYSTEM, EXCLUSIONS, ALLOWANCES.",
+            "examples": [
+              "ROOFING SYSTEM",
+              "SIDING SYSTEM",
+              "FRAMING",
+              "CONCRETE & FOUNDATION",
+              "FINISH CARPENTRY",
+              "EXCLUSIONS",
+              "ALLOWANCES"
+            ]
+          },
+          "description": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["INCLUDED", "EXCLUDED", "ALLOWANCE", "ALTERNATE", "BY_OWNER", "BY_OTHERS"]
+          },
+          "type": {
+            "type": "string",
+            "enum": ["M", "L", "M+L", "EQ", "SUB", "ALLOW", "NOTE"],
+            "description": "M=Material, L=Labor, M+L=Both, EQ=Equipment, SUB=Subcontract, ALLOW=Allowance, NOTE=text only."
+          },
+          "allowance_amount": {
+            "type": ["number", "null"],
+            "description": "Required when status=ALLOWANCE."
+          },
+          "notes": { "type": "string" },
+          "ai_confidence": { "$ref": "#/$defs/confidence" }
+        }
+      }
+    },
+    "takeoff_items": {
+      "type": "array",
+      "description": "Quantity takeoff - one row per takeoff line. Geometric calc fields (length/width/proj_area/slope_factor) are optional but recommended for reviewability.",
+      "items": {
+        "type": "object",
+        "required": ["takeoff_id", "service_code", "description", "quantity", "unit"],
+        "properties": {
+          "takeoff_id": { "type": "string", "examples": ["RP-01", "LF-03", "SW-02"] },
+          "service_code": { "type": "string", "description": "Links the takeoff to a scope item." },
+          "description": { "type": "string" },
+          "geometry": {
+            "type": "object",
+            "description": "Optional geometric inputs. CRM can recompute quantity = projected_area * slope_factor for verification.",
+            "properties": {
+              "length_ft": { "type": "number" },
+              "width_ft": { "type": "number" },
+              "height_ft": { "type": "number" },
+              "projected_area_sf": { "type": "number" },
+              "pitch": { "type": "string", "examples": ["10/12", "3/12", "flat"] },
+              "slope_factor": {
+                "type": "number",
+                "description": "Multiplier on projected area to get net area. 10/12 = 1.30; 3/12 = 1.03."
+              }
+            }
+          },
+          "quantity": { "type": "number", "description": "Net quantity before waste." },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "SF",
+              "LF",
+              "SQ",
+              "EA",
+              "CY",
+              "BF",
+              "TON",
+              "LB",
+              "GAL",
+              "BOX",
+              "ROLL",
+              "BUNDLE",
+              "PC",
+              "LOT",
+              "100LF",
+              "100SF",
+              "MBF"
+            ]
+          },
+          "waste_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Decimal (0.10 = 10%)."
+          },
+          "order_quantity": {
+            "type": "number",
+            "description": "Quantity * (1 + waste_pct), rounded to ordering unit if applicable."
+          },
+          "subtotal_role": {
+            "type": "string",
+            "enum": ["LINE", "SUBTOTAL", "TOTAL"],
+            "default": "LINE",
+            "description": "LINE for normal items; SUBTOTAL/TOTAL for aggregator rows that the CRM can recompute."
+          },
+          "notes": { "type": "string" },
+          "ai_confidence": { "$ref": "#/$defs/confidence" }
+        }
+      }
+    },
+    "materials": {
+      "type": "array",
+      "description": "Material list with pricing. Each row drives material cost AND feeds material_price_book history.",
+      "items": {
+        "type": "object",
+        "required": ["material_id", "service_code", "description", "qty", "unit", "unit_cost"],
+        "properties": {
+          "material_id": { "type": "string", "examples": ["M-R01", "M-S04"] },
+          "service_code": { "type": "string" },
+          "description": { "type": "string" },
+          "spec": { "type": "string", "description": "Brand/grade/SKU details if relevant." },
+          "qty": { "type": "number", "minimum": 0 },
+          "unit": { "type": "string" },
+          "unit_cost": { "type": "number", "minimum": 0 },
+          "subtotal": { "type": "number", "description": "qty * unit_cost. CRM verifies." },
+          "tax_freight_pct": { "type": "number", "minimum": 0, "maximum": 1 },
+          "tax_freight_amount": { "type": "number", "minimum": 0 },
+          "total": { "type": "number" },
+          "vendor": { "type": "string" },
+          "vendor_quote_id": {
+            "type": ["string", "null"],
+            "description": "Reference to a vendor quote document if available."
+          },
+          "price_source": {
+            "type": "string",
+            "enum": ["VENDOR_QUOTE", "PRICE_BOOK", "RSMEANS", "AI_ESTIMATE", "HISTORICAL"],
+            "description": "Drives confidence weighting in the learning loop."
+          },
+          "lead_time_days": { "type": ["integer", "null"], "minimum": 0 },
+          "notes": { "type": "string" },
+          "ai_confidence": { "$ref": "#/$defs/confidence" }
+        }
+      }
+    },
+    "labor_rates": {
+      "type": "array",
+      "description": "Trade rate buildup snapshot used by THIS estimate. Feeds labor_rate_book history.",
+      "items": {
+        "type": "object",
+        "required": ["trade", "base_wage_hr", "burden_pct", "markup_pct", "billed_hr"],
+        "properties": {
+          "trade_code": { "type": "string", "examples": ["ROOF-FOREMAN", "CARP-JOURNEY", "MASON"] },
+          "trade": {
+            "type": "string",
+            "examples": ["Roofer Foreman", "Journeyman Carpenter", "Mason"]
+          },
+          "base_wage_hr": { "type": "number", "minimum": 0 },
+          "burden_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "description": "Decimal. NH typical 0.40-0.45."
+          },
+          "burdened_hr": { "type": "number", "minimum": 0 },
+          "markup_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "description": "OH&P markup on burdened rate. Decimal."
+          },
+          "billed_hr": { "type": "number", "minimum": 0 },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "labor_productivity": {
+      "type": "array",
+      "description": "Activity-level productivity (MH per unit), crew composition, and computed crew-days. Feeds productivity_book history.",
+      "items": {
+        "type": "object",
+        "required": ["activity_id", "service_code", "activity", "quantity", "unit", "mh_per_unit"],
+        "properties": {
+          "activity_id": { "type": "string", "examples": ["L-R05", "L-S03"] },
+          "service_code": { "type": "string" },
+          "activity": {
+            "type": "string",
+            "examples": ["Asphalt shingle install", "LP lap siding install"]
+          },
+          "quantity": { "type": "number", "minimum": 0 },
+          "unit": { "type": "string" },
+          "mh_per_unit": { "type": "number", "minimum": 0 },
+          "total_mh": { "type": "number", "minimum": 0 },
+          "crew_size": { "type": "integer", "minimum": 1 },
+          "crew_composition": {
+            "type": "array",
+            "description": "Optional breakdown of who is on the crew - e.g. 1 Foreman + 2 Journeyman + 1 Helper.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "trade_code": { "type": "string" },
+                "count": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["trade_code", "count"]
+            }
+          },
+          "crew_days": { "type": "number", "minimum": 0 },
+          "productivity_source": {
+            "type": "string",
+            "enum": ["AWG_HISTORICAL", "RSMEANS", "AI_ESTIMATE", "INDUSTRY_AVG"]
+          },
+          "notes": { "type": "string" },
+          "ai_confidence": { "$ref": "#/$defs/confidence" }
+        }
+      }
+    },
+    "equipment": {
+      "type": "array",
+      "description": "Equipment, access, site logistics, dumpsters, PM allocation. Feeds equipment_book history.",
+      "items": {
+        "type": "object",
+        "required": ["equipment_id", "description", "qty", "unit", "rate", "total"],
+        "properties": {
+          "equipment_id": { "type": "string", "examples": ["EQ-01", "EQ-06"] },
+          "description": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": [
+              "ACCESS",
+              "LIFT",
+              "DELIVERY",
+              "DEBRIS",
+              "FACILITY",
+              "TOOL",
+              "PPE",
+              "PM",
+              "OTHER"
+            ]
+          },
+          "qty": { "type": "number", "minimum": 0 },
+          "unit": { "type": "string", "examples": ["set", "ea", "wk", "haul", "FTE", "lot"] },
+          "duration_wk": { "type": ["number", "null"], "minimum": 0 },
+          "rate": { "type": "number", "minimum": 0 },
+          "rate_basis": {
+            "type": "string",
+            "enum": ["WEEKLY", "DAILY", "HOURLY", "LUMP", "PER_HAUL", "PER_DROP"]
+          },
+          "total": { "type": "number", "minimum": 0 },
+          "vendor": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "Pricing scenarios. Required minimum: at least one. Typical set: in-house, subcontract, hybrid.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scenario_code", "scenario_name", "direct_costs", "markups", "totals"],
+        "properties": {
+          "scenario_code": { "type": "string", "examples": ["A_INHOUSE", "B_SUB", "C_HYBRID"] },
+          "scenario_name": { "type": "string" },
+          "direct_costs": {
+            "type": "object",
+            "properties": {
+              "material": { "type": "number" },
+              "labor": { "type": "number" },
+              "subcontract": { "type": "number" },
+              "equipment": { "type": "number" },
+              "subtotal": { "type": "number" }
+            },
+            "required": ["subtotal"]
+          },
+          "markups": {
+            "type": "object",
+            "properties": {
+              "general_conditions_pct": { "type": "number" },
+              "contingency_pct": { "type": "number" },
+              "bond_insurance_pct": { "type": "number" },
+              "overhead_pct": { "type": "number" },
+              "profit_pct": { "type": "number" },
+              "markup_subtotal": { "type": "number" }
+            },
+            "required": ["markup_subtotal"]
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "total_bid_price": { "type": "number" },
+              "price_per_sf_finished": { "type": "number" },
+              "schedule_weeks": { "type": "integer" }
+            },
+            "required": ["total_bid_price"]
+          },
+          "pros": { "type": "array", "items": { "type": "string" } },
+          "cons": { "type": "array", "items": { "type": "string" } },
+          "is_recommended": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "histogram": {
+      "type": "object",
+      "description": "Manpower loading by week or by date. Required if scenario has schedule_weeks. Used to render the manpower curve in the CRM.",
+      "properties": {
+        "duration_weeks": { "type": "integer", "minimum": 1 },
+        "start_date": { "type": ["string", "null"], "format": "date" },
+        "rows": {
+          "type": "array",
+          "description": "One row per activity. Headcount per week.",
+          "items": {
+            "type": "object",
+            "required": ["activity", "headcount_by_week"],
+            "properties": {
+              "activity": { "type": "string" },
+              "service_code": { "type": "string" },
+              "headcount_by_week": {
+                "type": "array",
+                "items": { "type": "number", "minimum": 0 },
+                "description": "Length must equal duration_weeks."
+              },
+              "total_mh": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "Risk register. AI flags items with confidence < threshold or missing info. Drives contingency reasoning.",
+      "items": {
+        "type": "object",
+        "required": ["risk_id", "description", "category", "likelihood", "impact"],
+        "properties": {
+          "risk_id": { "type": "string", "examples": ["RSK-01"] },
+          "description": { "type": "string" },
+          "category": {
+            "type": "string",
+            "enum": [
+              "SCOPE",
+              "QUANTITY",
+              "PRICE",
+              "SCHEDULE",
+              "WEATHER",
+              "ACCESS",
+              "DESIGN_INCOMPLETE",
+              "REGULATORY",
+              "SUBCONTRACTOR",
+              "OTHER"
+            ]
+          },
+          "likelihood": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "impact": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+          "cost_impact_low": { "type": "number" },
+          "cost_impact_high": { "type": "number" },
+          "mitigation": { "type": "string" },
+          "linked_service_codes": { "type": "array", "items": { "type": "string" } },
+          "needs_human_review": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Bid summary - all-in metrics + recommendation. Mostly derived from scenarios but stored for fast read.",
+      "required": ["recommended_scenario_code", "total_bid_price"],
+      "properties": {
+        "recommended_scenario_code": { "type": "string" },
+        "total_bid_price": { "type": "number" },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "price_per_sf_finished": { "type": "number" },
+            "price_per_sf_wall": { "type": "number" },
+            "material_pct": { "type": "number" },
+            "labor_pct": { "type": "number" },
+            "total_man_hours": { "type": "number" },
+            "schedule_weeks": { "type": "integer" }
+          }
+        },
+        "recommendation_rationale": { "type": "string" }
+      }
+    },
+    "review_flags": {
+      "type": "array",
+      "description": "Specific items the human reviewer should check. AI populates this so the estimator knows where to focus.",
+      "items": {
+        "type": "object",
+        "required": ["target", "reason", "severity"],
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "JSON pointer to the field, e.g. /takeoff_items/3/quantity"
+          },
+          "reason": { "type": "string" },
+          "severity": { "type": "string", "enum": ["INFO", "REVIEW", "BLOCKER"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "object",
+      "description": "AI confidence metadata travels with each AI-generated value so the learning loop has signal.",
+      "properties": {
+        "level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "0..1 numeric confidence."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "DRAWINGS",
+            "SPECS",
+            "PRICE_BOOK",
+            "PRODUCTIVITY_BOOK",
+            "RSMEANS",
+            "VENDOR_QUOTE",
+            "INFERRED",
+            "ASSUMED"
+          ]
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

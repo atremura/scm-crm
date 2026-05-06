@@ -1,526 +1,388 @@
 # Cowork Import Schema — `scm-crm`
 
-**Version:** 1.0 (proposed)
-**Last updated:** 2026-05-04
-**Status:** Draft — pending field validation with real Cowork run
+**Schema version:** 1.0.0
+**Last updated:** 2026-05-07
+**Status:** Official contract between Cowork Desktop and scm-crm
 **Owner:** Andre Tremura
+
+> 📄 The authoritative JSON Schema is in `docs/cowork-import.schema.json`.
+> This document explains _how_ the JSON is used by scm-crm: validation
+> beyond the schema, mapping to internal data model, API endpoints,
+> and architectural decisions.
 
 ---
 
 ## 1. Purpose
 
-This document defines the structured output format that **Cowork Desktop** must produce so that `scm-crm` can import a complete project estimate without running AI inside the app.
+This document defines the contract between **Cowork Desktop** (external estimating tool) and **scm-crm** (this repository).
 
-The decision to keep AI analysis outside the app (in Cowork Desktop) is deliberate:
+Cowork analyzes project documents (plans, specs, scope sheets) and produces a single JSON document conforming to v1.0.0 of `cowork-import.schema.json`. The scm-crm imports that JSON via `POST /api/projects/[id]/import-cowork`, validates it against the schema **plus integrity rules** (section 4), maps the 11 JSON blocks to scm-crm's existing data model (section 5), and creates Classifications + EstimateLines for human review.
 
-- The app stays fast and stable — no long-running Anthropic Files API calls inside HTTP request lifecycles
-- AI cost is bounded — analysis runs only when the user explicitly triggers Cowork
-- Cowork Desktop can take 30 minutes if needed without timeout/polling complexity in the app
-- Clean separation of concerns: Cowork analyzes, `scm-crm` manages workflow and pricing
+## 2. Why Cowork is external
 
-After import, `scm-crm` may **suggest** improvements via existing AI helpers (Hidden Cost Detector, Per-Line Suggester, Project Context Analyzer), but those run on demand and only emit `Suggestion` rows for the user to approve. AI never writes directly to project data.
+The previous "Phase 1 Project AI Analyst" (in-app Claude Files API analysis) is being deprecated. Reasons:
 
----
+- Long-running AI calls inside HTTP requests caused app freezes
+- AI cost was unbounded — every analysis charged Anthropic credits
+- Polling for analysis results added complexity to UI
 
-## 2. Design Principles
+By moving analysis to Cowork (external desktop tool), we get:
 
-### What Cowork sends
+- App stays fast — no long-running AI inside HTTP cycles
+- Cost bounded — analysis happens only when user invokes Cowork
+- 30-minute analyses become acceptable (no timeout pressure)
+- Clean separation: Cowork analyzes, scm-crm manages workflow and pricing
 
-Cowork sends everything it determined during analysis:
+## 3. Two paths in Module 2
 
-- Service descriptions and quantities
-- Productivity (man-hours per unit)
-- Labor trade categorization
-- Materials with quantities and (optionally) prices
-- Project-level context hints
+**Path A — AI-assisted (Cowork):** for medium/large projects worth investing in AI analysis.
 
-### What `scm-crm` calculates
+1. Bid accepted → Project created in scm-crm
+2. User opens Cowork Desktop separately and runs analysis
+3. Cowork produces `<project>_estimate.json` conforming to v1.0.0
+4. User uploads JSON via scm-crm import endpoint
+5. scm-crm creates Classifications + EstimateLines
+6. Human estimator reviews and adjusts in scm-crm
 
-The app derives anything that depends on tenant configuration:
+**Path B — Manual (no AI):** for small/repair jobs where the estimator's experience is enough. Bypasses Cowork entirely; estimator adds classifications directly via scm-crm UI.
 
-- Labor rates ($/hour) — looked up by trade × region × shop type from `LaborRate` master data
-- Material prices — used from Cowork if provided; otherwise looked up from `Material` master data
-- Total man-hours (qty × MH/u)
-- Total labor cost (MH × rate)
-- Total material cost (qty × waste × price)
-- Subtotals and line totals
-- General Conditions, Overhead, Profit, Contingency — defined per estimate by the estimator
+## 4. Integrity rules (semantic validation beyond JSON Schema)
 
-### What never goes in this file
+The JSON Schema in `cowork-import.schema.json` validates **structure**. These rules validate **semantic consistency** — the JSON can be schema-valid but semantically broken. The scm-crm importer enforces these. Cowork's own skills also enforce them at generation time (defense in depth).
 
-- Tenant secrets or credentials
-- Labor rates ($/hr) — these belong to the tenant's master data
-- General Conditions, Overhead, Profit percentages — set per estimate by the estimator
-- Sales tax — set per estimate
+These rules were discovered during the 2026-05-07 sanity-check comparing the Knotty Way full estimate vs. the siding-only derivation.
 
----
+### Rule 1 — Material coverage (BLOCKER)
 
-## 3. File Format
+For every `scope_items[i]` where `type ∈ ("M", "M+L")`, there must exist at least one `materials[j]` with `service_code === scope_items[i].service_code`.
 
-**JSON** is the chosen format. Reasons:
+**Why:** original Knotty Way JSON had 12 siding scope items but only 2 material rows linked. Resulted in $80k undercount. Cannot import a JSON that promises material installation without listing the materials.
 
-- Cowork can generate it programmatically without fragile spreadsheet templates
-- Versionable via `schemaVersion` field
-- Validates cleanly with Zod on the import endpoint
-- No ambiguity from merged cells, formatting, empty rows, etc.
+**Importer behavior:** reject with HTTP 400 + clear error listing missing service codes.
 
-**File extension:** `.cowork.json`
-**MIME type:** `application/json`
-**Encoding:** UTF-8
-**Maximum size:** 10 MB (covers very large projects with thousands of line items)
+### Rule 2 — Productivity coverage (BLOCKER)
 
----
+For every `scope_items[i]` where `type ∈ ("L", "M+L")`, there must exist at least one `labor_productivity[j]` with `service_code === scope_items[i].service_code`.
 
-## 4. Top-Level Structure
+**Why:** mirrors Rule 1 for labor. A scope item that promises labor installation must have at least one productivity row driving its hours calculation.
+
+**Importer behavior:** reject with HTTP 400 + listing of missing service codes.
+
+### Rule 3 — Histogram-productivity consistency (WARNING)
+
+`sum(histogram.rows[].total_mh)` should be within ±25% of `sum(labor_productivity[].total_mh)`.
+
+**Why:** histogram derived independently of productivity led to 5x discrepancies in the Knotty Way test. The 25% margin allows for logistics/weather buffer.
+
+**Importer behavior:** create a `Suggestion` row with severity REVIEW flagging the discrepancy. Allow import to proceed.
+
+### Rule 4 — Service code consistency (BLOCKER)
+
+Every `service_code` referenced in `takeoff_items`, `materials`, `labor_productivity`, or `histogram.rows` must exist in `scope_items`.
+
+**Why:** orphan references mean someone is pricing/quantifying a service that wasn't formally scoped. Either scope is incomplete or there's a typo.
+
+**Importer behavior:** reject with HTTP 400 + listing of orphan service codes.
+
+### Rule 5 — Allowance consistency (WARNING)
+
+If `scope_items[i].status === "ALLOWANCE"`, then `allowance_amount` must be present and > 0.
+
+**Why:** allowances without amounts are useless — they create scope items the estimator must hunt down to price.
+
+**Importer behavior:** create `Suggestion` row with severity REVIEW. Allow import to proceed.
+
+### Rule 6 — Geometry plausibility (WARNING)
+
+If `takeoff_items[i].geometry.projected_area_sf` and `geometry.slope_factor` are both present, then `takeoff_items[i].quantity` should be within ±5% of `projected_area_sf × slope_factor`.
+
+**Why:** sanity check. Reviewer can catch typos in either input or output.
+
+**Importer behavior:** create `Suggestion` row with severity REVIEW.
+
+### Rule 7 — Recommended scenario must exist (BLOCKER)
+
+`summary.recommended_scenario_code` must match one of `scenarios[i].scenario_code`.
+
+**Why:** the summary tells the reviewer "use scenario X." If X doesn't exist, the recommendation is broken.
+
+**Importer behavior:** reject with HTTP 400.
+
+### Rule 8 — Tenant slug match (BLOCKER, post-multi-tenancy)
+
+If `estimate_meta.tenant_slug` is non-null, it must match the slug of the authenticated user's company.
+
+**Why:** prevents cross-tenant import (uploading a JSON intended for tenant A into tenant B's session). Currently scm-crm is dev-only with single tenant, so this rule is informational; it becomes BLOCKER once multi-tenancy ships.
+
+**Importer behavior (current, dev):** ignore mismatch with INFO log.
+**Importer behavior (production, multi-tenant):** reject with HTTP 403.
+
+## 5. Mapping JSON → scm-crm data model
+
+The 11 JSON blocks do NOT map 1:1 to scm-crm tables. Cowork designed for a learning-loop-enabled future state with separate tables per concept. scm-crm currently has a simpler model. We adapt:
+
+| Cowork JSON block                                | scm-crm destination                                                  | Notes                                                                    |
+| ------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `estimate_meta`                                  | `Project` (update) + `EstimateImport` (audit)                        | Update `Project.contextHints` (new JSONB field to be added in Phase 1.2) |
+| `scope_items` (status=INCLUDED)                  | `Classification` rows                                                | One per scope item; `service_code` → matchCode                           |
+| `scope_items` (status=EXCLUDED, ALLOWANCE, etc.) | `Suggestion` rows                                                    | Status preserved as note; reviewer decides                               |
+| `takeoff_items`                                  | Quantity + UOM on `EstimateLine`                                     | Geometry block → `EstimateLine.notes` JSON                               |
+| `materials`                                      | Material breakdown in `EstimateLine.materialBreakdown`               | `unit_cost` → `unitCostCents`; `*_final` populated on review             |
+| `labor_rates`                                    | Validated against `LaborRate` master data; mismatches → `Suggestion` | Cowork rates not auto-saved to master data                               |
+| `labor_productivity`                             | `mh_per_unit` → `EstimateLine.mhPerUnit` (matched via service_code)  | Crew composition stored in `EstimateLine.notes`                          |
+| `equipment`                                      | `EstimateLine` rows with type='equipment'                            | Future: dedicated `EstimateEquipment` table                              |
+| `scenarios`                                      | **Not stored** in v1.0 of importer                                   | Saved verbatim in `EstimateImport.rawPayload` for future use             |
+| `histogram`                                      | **Not stored** in v1.0 of importer                                   | Saved verbatim in `EstimateImport.rawPayload` for future use             |
+| `risks`                                          | `Suggestion` rows with severity REVIEW                               | category preserved as note                                               |
+| `review_flags`                                   | `Suggestion` rows; severity maps directly                            | BLOCKER prevents apply until resolved                                    |
+| `summary`                                        | `Estimate` totals (recomputed by scm-crm pricing engine)             | Cowork totals stored as audit reference only                             |
+
+**Key principle:** scm-crm pricing engine (`src/lib/estimate-pricing.ts`) recomputes totals from line items + master data. Cowork's totals are **reference**, not authoritative. This ensures consistency with estimates created via Path B (manual).
+
+## 6. EstimateImport audit row
+
+Every import attempt creates an `EstimateImport` row that preserves the full JSON for replay/audit. Schema (Prisma model to be added in Phase 1.2):
+
+- `id`, `companyId`, `projectId`, `estimateId` (nullable until estimate created)
+- `source` ("cowork" | future sources)
+- `schemaVersion` ("1.0.0")
+- `fileName`, `fileHash` (SHA256 — prevents duplicate import), `fileBlobUrl` (Vercel Blob)
+- `status` ("pending" | "previewed" | "applied" | "rejected" | "failed")
+- `rawPayload` (JSONB — full JSON verbatim)
+- `previewSummary` (JSONB — `{ newClassifications, newLines, suggestions, warnings, errors }`)
+- `appliedById`, `appliedAt`, `rejectedById`, `rejectedAt` (nullable)
+- `createdAt`
+
+**Why preserve raw payload:** allows replay. If Cowork's logic changes years later, we can reconstruct what was originally imported. Also gives us scenarios/histogram data when those features ship.
+
+## 7. API endpoints
+
+All endpoints are nested under a project (multi-tenant via session auth) and require edit access on that project.
+
+### POST `/api/projects/[id]/import-cowork`
+
+Upload a Cowork JSON and generate a preview. Does **not** modify project data.
+
+**Request:**
+
+- Method: `POST`
+- Body: `multipart/form-data` with field `file` containing the `.json`
+- Auth: session cookie; user must have edit access on project `[id]`
+
+**Behavior:**
+
+1. Authenticate; verify edit access on the project
+2. Compute SHA256 of file bytes; reject if a previously-applied import has the same hash (HTTP 409 Conflict)
+3. Parse JSON; validate against `cowork-import.schema.json` v1.0.0 (HTTP 400 with field-level errors if invalid)
+4. Run integrity rules (section 4):
+   - **BLOCKER** violations → reject with HTTP 400, include violations array
+   - **WARNING** violations → continue, accumulate in `previewSummary.warnings`
+5. Generate preview by simulating the apply step in-memory:
+   - Count Classifications that would be created
+   - Count EstimateLines that would be created
+   - Count Suggestion rows (from `risks`, `review_flags`, mismatches)
+   - List labor rate mismatches against tenant `LaborRate` table
+   - List service codes that don't exist in `Classification` master data
+6. Persist `EstimateImport` row with `status='previewed'`, `rawPayload` = full JSON, `previewSummary` = the counts and warnings
+7. Return `{ importId, preview }` with HTTP 201
+
+**Response (success, 201):**
 
 ```json
 {
-  "schemaVersion": "1.0",
-  "exportedAt": "2026-05-04T14:30:00Z",
-  "coworkRunId": "run_abc123",
-  "project": { ... },
-  "estimateConfig": { ... },
-  "lineItems": [ ... ],
-  "projectContextHints": { ... }
-}
-```
-
-| Field                 | Type              | Required | Description                                                                                 |
-| --------------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `schemaVersion`       | string            | yes      | Semantic version of this schema. Currently `"1.0"`. Cowork must update when format changes. |
-| `exportedAt`          | ISO 8601 datetime | yes      | UTC timestamp of when the file was generated by Cowork.                                     |
-| `coworkRunId`         | string            | yes      | Cowork's internal identifier for this analysis run. Stored for traceability and debugging.  |
-| `project`             | object            | yes      | Project-level metadata. See section 5.                                                      |
-| `estimateConfig`      | object            | no       | Suggested estimate-level configuration. See section 6.                                      |
-| `lineItems`           | array             | yes      | The line items that will become Classifications and Estimate Lines. See section 7.          |
-| `projectContextHints` | object            | no       | Non-binding hints that become Suggestion rows after import. See section 8.                  |
-
----
-
-## 5. `project` Object
-
-Project-level information that populates or updates the `Project` record.
-
-```json
-"project": {
-  "name": "Smith Residence Renovation",
-  "address": "123 Main St, Boston, MA 02101",
-  "stories": 2,
-  "envelopeSf": 4500,
-  "estimatedDurationWeeks": 12,
-  "siteConditions": "Tight urban site, no on-site parking. Adjacent properties within 5 ft. Existing landscaping to be protected.",
-  "specialRequirements": [
-    "HVHZ wind zone",
-    "Historic district approval required",
-    "No work after 6 PM weekdays"
-  ],
-  "winterRisk": "low"
-}
-```
-
-| Field                    | Type             | Required | Description                                                  |
-| ------------------------ | ---------------- | -------- | ------------------------------------------------------------ |
-| `name`                   | string           | no       | Project name. If absent, app uses the existing Project.name. |
-| `address`                | string           | no       | Full project address. If absent, app uses existing.          |
-| `stories`                | integer          | no       | Number of stories. Used by app for productivity adjustments. |
-| `envelopeSf`             | integer          | no       | Building envelope square footage.                            |
-| `estimatedDurationWeeks` | integer          | no       | Estimated total duration.                                    |
-| `siteConditions`         | string           | no       | Free text describing site context.                           |
-| `specialRequirements`    | array of strings | no       | List of special requirements/restrictions.                   |
-| `winterRisk`             | enum             | no       | `"low"`, `"medium"`, or `"high"`.                            |
-
-**Behavior on import:**
-
-- Fields present in the file overwrite the corresponding fields in `Project`
-- Fields absent from the file leave existing `Project` values untouched
-- All these values land in `Project.contextHints` (JSONB) for traceability
-
----
-
-## 6. `estimateConfig` Object
-
-Pre-fills certain Estimate-level settings. The estimator can override after import.
-
-```json
-"estimateConfig": {
-  "region": "MA",
-  "shopType": "open_shop",
-  "validForDays": 30,
-  "assumptions": [
-    "Permit fees by owner",
-    "No work on weekends without prior approval",
-    "Dumpster service included"
-  ]
-}
-```
-
-| Field          | Type             | Required | Description                                                                              |
-| -------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------- |
-| `region`       | string           | no       | Region code (must exist in tenant's `Region` master data). E.g., `"MA"`, `"NH"`, `"RI"`. |
-| `shopType`     | enum             | no       | `"open_shop"` or `"union"`. Drives labor rate selection.                                 |
-| `validForDays` | integer          | no       | Default validity in days for the proposal. Falls back to tenant default.                 |
-| `assumptions`  | array of strings | no       | Bulleted assumptions to include in the proposal.                                         |
-
-**Behavior on import:**
-
-- If a new Estimate is being created during import, these values populate it
-- If an Estimate already exists, these values are NOT applied automatically (user gets a notification)
-- Values that don't match tenant master data (e.g., unknown region) are flagged and skipped
-
----
-
-## 7. `lineItems` Array
-
-The core of the file. Each entry becomes one `Classification` row and (after estimate creation) one `EstimateLine` row.
-
-```json
-"lineItems": [
-  {
-    "lineNumber": 1,
-    "groupName": "06 - Rough Carpentry",
-    "matchCode": "RCFRMW",
-    "description": "Frame exterior wall 2x6 @ 16\" OC",
-    "quantity": 1850,
-    "uom": "sf",
-    "labor": {
-      "trade": "Carpenter Rough",
-      "manHoursPerUnit": 0.045,
-      "crewSize": 2
-    },
-    "materials": [
-      {
-        "name": "2x6x10 SPF #2",
-        "sku": "LMB-2X6X10-SPF",
-        "quantityPerUnit": 0.85,
-        "uom": "lf",
-        "wastePercent": 10,
-        "unitPriceCents": null,
-        "supplier": null
-      },
-      {
-        "name": "Simpson H2.5A hurricane tie",
-        "sku": "SIM-H25A",
-        "quantityPerUnit": 0.0625,
-        "uom": "ea",
-        "wastePercent": 5,
-        "unitPriceCents": 142,
-        "supplier": "Home Depot"
-      }
-    ],
-    "notes": "Includes blocking at 4'0\" intervals",
-    "needsReview": false,
-    "coworkConfidence": 0.92
+  "importId": "imp_...",
+  "preview": {
+    "newClassifications": 12,
+    "newLines": 47,
+    "newSuggestions": 8,
+    "warnings": [{ "rule": "histogram-productivity", "message": "...", "severity": "REVIEW" }],
+    "laborRateMismatches": [{ "trade": "Mason", "cowork_billed_hr": 92.5, "master_data_hr": 88.0 }]
   }
-]
-```
-
-### Line Item Fields
-
-| Field              | Type    | Required | Description                                                                                        |
-| ------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------- |
-| `lineNumber`       | integer | yes      | Sequential number starting at 1. Used for ordering and reference in messages.                      |
-| `groupName`        | string  | no       | Section header (e.g., CSI division). Used for visual grouping in the estimate.                     |
-| `matchCode`        | string  | no       | If Cowork knows the tenant's match code (`ELFCS`, `RCFRMW`, etc), include it for direct L1 lookup. |
-| `description`      | string  | yes      | Free text description of the work. Used for L2 fuzzy matching when no `matchCode` is present.      |
-| `quantity`         | number  | yes      | Numeric quantity. Use decimals for partials (e.g., `12.5`).                                        |
-| `uom`              | string  | yes      | Unit of measure. Must be one of the tenant's allowed UOMs (sf, lf, ea, cy, ton, etc).              |
-| `labor`            | object  | yes      | Labor information. See below.                                                                      |
-| `materials`        | array   | no       | Material list. Empty array `[]` is valid for labor-only items.                                     |
-| `notes`            | string  | no       | Free text notes for the estimator.                                                                 |
-| `needsReview`      | boolean | no       | Cowork flags items it's uncertain about. Default `false`.                                          |
-| `coworkConfidence` | number  | no       | Confidence score 0.0–1.0 from Cowork's analysis. Optional, used for sorting/filtering.             |
-
-### Labor Object
-
-```json
-"labor": {
-  "trade": "Carpenter Rough",
-  "manHoursPerUnit": 0.045,
-  "crewSize": 2
 }
 ```
 
-| Field             | Type    | Required | Description                                                               |
-| ----------------- | ------- | -------- | ------------------------------------------------------------------------- |
-| `trade`           | string  | yes      | Labor trade name. Should match a `LaborTrade.name` in tenant master data. |
-| `manHoursPerUnit` | number  | yes      | Productivity in MH per UOM unit.                                          |
-| `crewSize`        | integer | no       | Typical crew size. Informational only — not used in pricing.              |
-
-**Note:** `manHoursPerUnit` is the productivity. The labor rate ($/hr) is looked up by `scm-crm` from `LaborRate` master data using the trade × region × shop type combination.
-
-### Material Object
+**Response (validation error, 400):**
 
 ```json
 {
-  "name": "2x6x10 SPF #2",
-  "sku": "LMB-2X6X10-SPF",
-  "quantityPerUnit": 0.85,
-  "uom": "lf",
-  "wastePercent": 10,
-  "unitPriceCents": null,
-  "supplier": null
-}
-```
-
-| Field             | Type            | Required | Description                                                                         |
-| ----------------- | --------------- | -------- | ----------------------------------------------------------------------------------- |
-| `name`            | string          | yes      | Material name as it should appear.                                                  |
-| `sku`             | string          | no       | If Cowork knows the tenant's SKU, include for direct lookup.                        |
-| `quantityPerUnit` | number          | yes      | Quantity of material per UOM of the line item. E.g., 0.85 lf of 2x6 per sf of wall. |
-| `uom`             | string          | yes      | UOM of the material (lf, ea, sf, etc) — independent of the line item's UOM.         |
-| `wastePercent`    | number          | no       | Waste factor as a percentage. Defaults to material master data or 0.                |
-| `unitPriceCents`  | integer or null | no       | Price in cents per UOM. **`null` means use Master Data lookup.**                    |
-| `supplier`        | string or null  | no       | Supplier name. Free text for now (until Supplier entity exists).                    |
-
-**Critical rule on prices:**
-
-- `unitPriceCents: null` → Cowork did not price this material. The app will look up the price in the `Material` master data table.
-- `unitPriceCents: 142` → Cowork priced this material (e.g., from a fresh quote). The app uses this exact value and ignores Master Data.
-
-This separation lets Cowork do fresh quoting on the items it cares about, while leveraging the app's catalog for everything else.
-
----
-
-## 8. `projectContextHints` Object
-
-Non-binding hints from Cowork's analysis. These do **not** create estimate lines or modify the project directly. They become `Suggestion` rows that the estimator approves or rejects.
-
-```json
-"projectContextHints": {
-  "permitChecklist": [
-    "Building permit",
-    "Electrical permit",
-    "Plumbing permit",
-    "Mechanical permit"
-  ],
-  "requiredEquipment": [
-    "Scaffolding 30ft",
-    "Bobcat S70",
-    "Dump trailer 7x14"
-  ],
-  "hiddenCostHints": [
-    "Demolition not in original scope — confirm with client before pricing",
-    "Lead paint testing recommended (pre-1978 building)",
-    "Existing siding is fiber cement — special disposal fee likely",
-    "Possible asbestos in attic insulation — air quality test recommended"
-  ]
-}
-```
-
-| Field               | Type             | Required | Description                                               |
-| ------------------- | ---------------- | -------- | --------------------------------------------------------- |
-| `permitChecklist`   | array of strings | no       | Permits Cowork believes are needed.                       |
-| `requiredEquipment` | array of strings | no       | Equipment Cowork identified as necessary.                 |
-| `hiddenCostHints`   | array of strings | no       | Items Cowork suspects might be missing or worth flagging. |
-
-**Behavior on import:**
-
-- Each hint becomes a `Suggestion` row with appropriate `target` field
-- `permitChecklist` items go to `target: 'project_permit'`
-- `requiredEquipment` items go to `target: 'project_equipment'`
-- `hiddenCostHints` go to `target: 'estimate_hidden_cost'`
-- All start in `status: 'pending'` for estimator review
-
----
-
-## 9. Re-import Behavior
-
-A project can have multiple imports over time (initial Cowork run, then refinements after design clarifications, etc).
-
-### File hash deduplication
-
-Each import is hashed (SHA256 of the file bytes). The app refuses to re-import an identical file with an explicit error: _"This exact file was already imported on YYYY-MM-DD by [user]"_.
-
-### Conflict detection during re-import
-
-When Cowork generates a new analysis for a project that already has line items:
-
-1. The new file is parsed but **not applied immediately**
-2. A preview is generated:
-   - `X new line items will be added`
-   - `Y existing line items match by description and will be updated`
-   - `Z existing line items have no match in the new file (will be kept)`
-3. The estimator chooses:
-   - **Apply all changes** — overwrites matching items, adds new
-   - **Apply only new** — keeps existing items as-is, adds new ones only
-   - **Cancel** — discards the import
-
-### Audit trail
-
-Every import attempt — successful, rejected, or failed — creates an `EstimateImport` row that preserves:
-
-- The complete raw file as JSONB (`rawPayload`)
-- Timestamp, file hash, file URL (Vercel Blob)
-- Who triggered, who applied (may differ)
-- Status flow: `pending` → `previewed` → `applied` / `rejected` / `failed`
-
-This means even if Cowork's logic changes years later, you can replay any import to understand what was originally proposed.
-
----
-
-## 10. Validation Rules (Zod schema reference)
-
-This section will guide the Zod schema implementation in `src/lib/cowork-import-schema.ts`.
-
-### Required field summary
-
-- `schemaVersion`, `exportedAt`, `coworkRunId`
-- `project` object (can have minimal fields)
-- `lineItems` array (must have at least 1 item)
-- For each line item: `lineNumber`, `description`, `quantity`, `uom`, `labor`
-- For each labor object: `trade`, `manHoursPerUnit`
-
-### Numeric ranges
-
-- `quantity`: > 0
-- `manHoursPerUnit`: 0 ≤ x ≤ 100 (sanity check)
-- `wastePercent`: 0 ≤ x ≤ 100
-- `unitPriceCents`: 0 ≤ x ≤ 10_000_000 ($100,000 per unit max — sanity)
-- `coworkConfidence`: 0.0 ≤ x ≤ 1.0
-- `stories`: 1 ≤ x ≤ 50
-- `envelopeSf`: 0 ≤ x ≤ 1_000_000
-- `estimatedDurationWeeks`: 0 ≤ x ≤ 520 (10 years max)
-
-### Tenant data validation (post-Zod)
-
-After schema validation passes, the app does additional checks against tenant master data:
-
-- `region` must exist in tenant's `Region` table
-- `labor.trade` should match a `LaborTrade` (warn if not, don't reject)
-- `uom` must be in tenant's allowed UOM list
-- `matchCode` if provided is checked against `ProductivityEntry`
-
-Failures here don't reject the import — they create `needsReview` flags for the estimator.
-
----
-
-## 11. Example: Minimal Valid File
-
-```json
-{
-  "schemaVersion": "1.0",
-  "exportedAt": "2026-05-04T14:30:00Z",
-  "coworkRunId": "run_minimal_001",
-  "project": {
-    "name": "Quick Repair Job"
-  },
-  "lineItems": [
+  "error": "schema_validation_failed",
+  "violations": [
     {
-      "lineNumber": 1,
-      "description": "Replace 3 damaged cedar shingles on south face",
-      "quantity": 3,
-      "uom": "ea",
-      "labor": {
-        "trade": "Sider",
-        "manHoursPerUnit": 0.5
-      }
+      "path": "/scope_items/3/service_code",
+      "message": "must match pattern ^[A-Z]{1,3}-[0-9]{2,3}$"
     }
   ]
 }
 ```
 
-This is enough for the app to create one classification and one estimate line. Materials are absent (Cowork did not analyze materials), so the estimator can add them manually after import.
-
----
-
-## 12. Open Questions for the Cowork Team
-
-These are the points to clarify in the next real Cowork session before finalizing v1.0:
-
-1. **Match codes** — does Cowork have access to a tenant's match code list? If yes, how is it kept in sync? If no, all line items will rely on L2 fuzzy matching by description.
-
-2. **Material catalog** — same question. If Cowork has the catalog, prices come pre-filled. If not, `unitPriceCents` will always be `null` and the app does the lookup.
-
-3. **Confidence scoring** — does Cowork already produce confidence scores? If not, this field is optional and can be added later.
-
-4. **Multi-file outputs** — for very large projects, would Cowork ever split output across multiple files (e.g., one per CSI division)? If yes, we need a `partOf` field referencing a parent run.
-
-5. **Image references** — does Cowork capture annotated drawings or material samples? If yes, we may need an `attachments` field with URLs or base64.
-
-6. **Re-run delta** — can Cowork detect "what changed since the last run" and produce a delta-only file? Useful for light revisions.
-
-7. **Currency** — assuming USD throughout. Should we make currency explicit per file?
-
----
-
-## 13. Versioning Strategy
-
-When this schema needs changes:
-
-| Type of change          | Version bump      | Backward compatibility             |
-| ----------------------- | ----------------- | ---------------------------------- |
-| Add optional field      | Patch (1.0 → 1.1) | Old files still work               |
-| Add required field      | Major (1.0 → 2.0) | Old files reject during validation |
-| Rename field            | Major             | Old files reject                   |
-| Change field type/range | Major             | Old files reject                   |
-| Remove field            | Major             | Files using it reject              |
-
-The app's importer keeps a registry of supported `schemaVersion` values. Files with unsupported versions get a clear error message: _"Cowork generated this file with schema 1.5, but this version of `scm-crm` only supports up to 1.2. Please update the app or regenerate with an older Cowork version."_
-
----
-
-## Appendix A — Fields Cowork Does NOT Send
-
-For the avoidance of doubt:
-
-- **No labor rates** ($/hr) — these come from tenant `LaborRate` master data
-- **No general conditions, overhead, profit, contingency** — these are estimate-level, set per estimate by the estimator
-- **No sales tax** — set per estimate
-- **No total costs** — calculated by the app from quantities × rates × waste
-- **No bid/proposal numbers** — assigned by the app
-- **No tenant or user identifiers** — the import endpoint authenticates the user and resolves the tenant
-- **No prices in dollars** — always cents (integer) to avoid float rounding
-
----
-
-## Appendix B — Implementation Notes for `scm-crm`
-
-These notes are for the developer implementing the importer. Not part of the Cowork-facing contract.
-
-### Endpoint
-
-```
-POST /api/projects/[id]/import-cowork
-Content-Type: multipart/form-data
-Body: file=<the JSON file>
-```
-
-Response shape on successful preview:
+**Response (integrity error, 400):**
 
 ```json
 {
-  "importId": "imp_abc123",
-  "preview": {
-    "newLines": 45,
-    "updatedLines": 0,
-    "conflicts": [],
-    "warnings": [
-      "Line 12: trade 'Tile Setter Premium' not found in master data, falling back to 'Tile Setter'",
-      "Line 23: UOM 'sm' is not in allowed list"
-    ]
+  "error": "integrity_violation",
+  "blockers": [
+    {
+      "rule": "material_coverage",
+      "service_codes": ["S-04", "S-07"],
+      "message": "scope items with type=M+L but no materials linked"
+    }
+  ]
+}
+```
+
+**Response (duplicate, 409):**
+
+```json
+{
+  "error": "duplicate_import",
+  "previousImportId": "imp_...",
+  "previousAppliedAt": "2026-05-08T14:30:00Z"
+}
+```
+
+### POST `/api/projects/[id]/import-cowork/[importId]/apply`
+
+Apply a previously-previewed import. Creates Classifications, EstimateLines, Suggestions in a single transaction.
+
+**Request:**
+
+- Method: `POST`
+- Body: empty (or optional `{ confirmReplace: boolean }` for projects with existing classifications)
+- Auth: session; edit access on project; user authoring the apply may differ from user that uploaded
+
+**Behavior:**
+
+1. Verify `importId` matches project `[id]` and `EstimateImport.status === 'previewed'`
+2. Open Prisma transaction:
+   - Update `Project.contextHints` (JSONB) with `estimate_meta` data
+   - Create `Classification` rows from `scope_items` with `status='INCLUDED'`
+   - Create `EstimateLine` rows from `takeoff_items` + `materials` + `labor_productivity` (joined by `service_code`)
+   - Create `Suggestion` rows from `risks`, `review_flags`, scope items with non-INCLUDED status, and warnings
+   - Update `EstimateImport`: `status='applied'`, `appliedAt`, `appliedById`
+3. Commit; return `{ estimateId, summary }` with HTTP 200
+
+**Response (success, 200):**
+
+```json
+{
+  "estimateId": "est_...",
+  "summary": {
+    "classificationsCreated": 12,
+    "linesCreated": 47,
+    "suggestionsCreated": 8
   }
 }
 ```
 
-### Apply step
+**Response (wrong status, 409):**
 
+```json
+{ "error": "import_not_in_previewed_state", "currentStatus": "applied" }
 ```
-POST /api/projects/[id]/import-cowork/[importId]/apply
+
+### POST `/api/projects/[id]/import-cowork/[importId]/reject`
+
+Reject a previewed import. Does not delete it — audit trail is preserved.
+
+**Request:**
+
+- Method: `POST`
+- Body: optional `{ reason?: string }`
+- Auth: session; edit access on project
+
+**Behavior:**
+
+1. Verify `importId` matches project; `status === 'previewed'`
+2. Update `EstimateImport`: `status='rejected'`, `rejectedAt`, `rejectedById`, optional `rejectionReason`
+3. Return `{ ok: true }`
+
+### GET `/api/projects/[id]/imports`
+
+List all `EstimateImport` rows for the project (audit history view).
+
+**Request:**
+
+- Method: `GET`
+- Auth: session; view access on project
+
+**Response (200):**
+
+```json
+{
+  "imports": [
+    {
+      "importId": "imp_...",
+      "fileName": "smith_residence_estimate.json",
+      "status": "applied",
+      "schemaVersion": "1.0.0",
+      "createdAt": "2026-05-08T14:30:00Z",
+      "appliedAt": "2026-05-08T14:35:00Z",
+      "appliedBy": { "id": "...", "name": "Andre Tremura" },
+      "summary": { "newLines": 47, "newSuggestions": 8 }
+    }
+  ]
+}
 ```
 
-Creates `Classification` rows and (if estimate exists) `EstimateLine` rows. Reuses existing `togal-resolver.ts` for matchCode/description resolution.
+### Error response shape (general)
 
-### Key implementation files (to be created)
+All error responses follow:
 
-- `src/lib/cowork-import-schema.ts` — Zod schema (mirrors this document)
-- `src/lib/cowork-import-applier.ts` — pure functions for matching and creating rows
-- `src/app/api/projects/[id]/import-cowork/route.ts` — POST endpoint
-- `src/app/api/projects/[id]/import-cowork/[importId]/apply/route.ts` — apply endpoint
-- `src/app/api/projects/[id]/import-cowork/[importId]/reject/route.ts` — reject endpoint
-- `src/components/takeoff/cowork-import-drawer.tsx` — UI for upload + preview
+```json
+{
+  "error": "<machine-readable code>",
+  "message": "<human-readable, optional>",
+  "details": { ... }
+}
+```
+
+## 8. UI integration points
+
+`/takeoff/[id]` (existing page) gains:
+
+- Button "Import Cowork Output" in toolbar
+- Drawer drag-drop for .json file
+- Preview shows: "X classifications, Y line items, Z suggestions, W warnings"
+- BLOCKER errors prevent Apply button enabling
+- Apply / Reject buttons; status persists
+
+`/takeoff/[id]/imports` (new page) shows audit list of past imports per project.
+
+## 9. Versioning policy
+
+| Change type        | Version bump  | Backward compatible |
+| ------------------ | ------------- | ------------------- |
+| Add optional field | 1.0.0 → 1.1.0 | Yes                 |
+| Add required field | 1.0.0 → 2.0.0 | No                  |
+| Rename field       | 1.0.0 → 2.0.0 | No                  |
+| Change enum values | 1.0.0 → 2.0.0 | No                  |
+| Tighten validation | 1.0.0 → 1.1.0 | Usually yes         |
+
+scm-crm importer maintains a registry of supported `schema_version` values. Files with unsupported versions are rejected with clear error: _"This file uses Cowork schema vX.Y.Z, but this version of scm-crm supports up to vA.B.C. Update the app or regenerate with a compatible Cowork version."_
+
+## 10. Open items / Phase 2
+
+These features were proposed by Cowork but deferred. They're tracked here, not yet planned.
+
+- **`*_ai` / `*_final` field pairs on EstimateLine** for variance tracking — defer until import flow is stable
+- **Dedicated `EstimateScenario` table** — defer until scenarios are actively used in proposals
+- **Dedicated `EstimateHistogram` table** — defer
+- **Learning loop** (`EstimateLearningObservation` + procs that update Master Data after estimate approval) — biggest deferred feature; requires 10-20 approved estimates worth of data before useful
+- **Equipment pool reconciliation** at scm-crm level (cross-service scaffold/PM allocation) — currently happens inside Cowork master skill
+
+Don't implement without explicit prioritization.
+
+## 11. References
+
+- **JSON Schema (authoritative):** `docs/cowork-import.schema.json`
+- **Architecture overview:** `docs/architecture-EN.md` (or `architecture-PT.md`)
+- **Project context for AI agents:** `CLAUDE.md`
+- **Original Knotty Way JSON example (reference):** Cowork team archive
+- **Schema validation library:** Zod (`zod` package), to be installed in Phase 2
 
 ---
 
-**End of document.**
-
-_This schema will evolve based on real-world Cowork sessions. Treat v1.0 as a working hypothesis, validated against actual Cowork output before locking down._
+_Cowork delivered schema v1.0.0 on 2026-05-06. Sanity-check vs. Knotty Way
+on 2026-05-07 surfaced 4 issues that became integrity rules 1, 2, 3, and
+4 of section 4. Cowork team patched their child + master skills the same
+day to enforce coverage and histogram derivation at generation time._
