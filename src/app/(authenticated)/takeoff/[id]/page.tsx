@@ -17,7 +17,6 @@ import {
   Calendar,
   Folder,
   Trash2,
-  Sparkles,
 } from 'lucide-react';
 import {
   Dialog,
@@ -33,7 +32,6 @@ import { Button } from '@/components/ui/button';
 import { EstimatorPickerDialog } from '@/components/takeoff/estimator-picker-dialog';
 import { DocumentsPanel } from '@/components/takeoff/documents-panel';
 import { TakeoffRollupPanel } from '@/components/takeoff/takeoff-rollup-panel';
-import { AiAnalysisPanel } from '@/components/takeoff/ai-analysis-panel';
 import { useSession } from 'next-auth/react';
 
 type ApiProject = {
@@ -85,7 +83,7 @@ type ApiProject = {
   }>;
 };
 
-type Tab = 'overview' | 'documents' | 'analysis' | 'takeoff';
+type Tab = 'overview' | 'documents' | 'takeoff';
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -283,10 +281,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           Documents
           <Badge count={project.documents.length} />
         </TabButton>
-        <TabButton active={tab === 'analysis'} onClick={() => setTab('analysis')}>
-          <Sparkles className="h-3.5 w-3.5" />
-          AI Analysis
-        </TabButton>
         <TabButton active={tab === 'takeoff'} onClick={() => setTab('takeoff')}>
           <Ruler className="h-3.5 w-3.5" />
           Takeoff
@@ -296,7 +290,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
       {tab === 'overview' && <OverviewPanel project={project} />}
       {tab === 'documents' && <DocumentsPanel projectId={project.id} />}
-      {tab === 'analysis' && <AiAnalysisPanel projectId={project.id} />}
       {tab === 'takeoff' && (
         <TakeoffRollupPanel
           project={project}
