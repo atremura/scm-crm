@@ -6,15 +6,13 @@ import {
   Clock,
   Loader2,
   Sparkles,
-  AlertTriangle,
-  CheckCircle2,
-  Wrench,
   Snowflake,
   ScrollText,
   Construction,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import type { ProjectContextHints } from '@/lib/project-context-hints';
 
 export type SiteConditions = {
   urban?: boolean;
@@ -37,13 +35,7 @@ export type ProjectContextProps = {
   estimateId: string;
   project: {
     name: string;
-    stories: number | null;
-    durationWeeks: number | null;
-    siteConditions: SiteConditions | null;
-    requiredEquipment: RequiredEquipment[] | null;
-    winterRisk: boolean | null;
-    permitChecklist: string[] | null;
-    aiContextRunAt: string | null;
+    contextHints: ProjectContextHints | null;
   };
   onRefreshed: () => void;
 };
@@ -69,13 +61,17 @@ const SITE_CONDITION_LABELS: Record<keyof SiteConditions, string> = {
 export function ProjectContextCard({ estimateId, project, onRefreshed }: ProjectContextProps) {
   const [running, setRunning] = useState(false);
 
-  const hasRun = !!project.aiContextRunAt;
-  const conditions = (project.siteConditions ?? {}) as SiteConditions;
-  const equipment = project.requiredEquipment ?? [];
-  const permits = project.permitChecklist ?? [];
+  const hints = project.contextHints;
+  // contextHints is the signal that IA-1 (or Cowork importer) populated the
+  // project. Empty object {} still counts as "ran" but with no findings.
+  const hasRun = hints !== null;
+  const conditions = (hints?.siteConditions ?? {}) as SiteConditions;
+  const equipment = hints?.requiredEquipment ?? [];
+  const permits = hints?.permitChecklist ?? [];
 
-  const activeConditions = (Object.keys(SITE_CONDITION_LABELS) as Array<keyof SiteConditions>)
-    .filter((k) => conditions[k]);
+  const activeConditions = (
+    Object.keys(SITE_CONDITION_LABELS) as Array<keyof SiteConditions>
+  ).filter((k) => conditions[k]);
 
   async function runContext() {
     setRunning(true);
@@ -90,7 +86,7 @@ export function ProjectContextCard({ estimateId, project, onRefreshed }: Project
       }
       const cents = data.costCents ?? 0;
       toast.success(
-        `Project context updated · $${(cents / 100).toFixed(3)} (${data.tokens.input + data.tokens.output} tok)`
+        `Project context updated · $${(cents / 100).toFixed(3)} (${data.tokens.input + data.tokens.output} tok)`,
       );
       onRefreshed();
     } catch (err: any) {
@@ -106,11 +102,6 @@ export function ProjectContextCard({ estimateId, project, onRefreshed }: Project
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-fg-subtle" />
           <h3 className="text-[13px] font-semibold text-fg-default">Project context</h3>
-          {hasRun && (
-            <span className="text-[10.5px] text-fg-subtle">
-              · IA-1 ran {new Date(project.aiContextRunAt!).toLocaleString()}
-            </span>
-          )}
         </div>
         <Button
           size="sm"
@@ -133,25 +124,25 @@ export function ProjectContextCard({ estimateId, project, onRefreshed }: Project
 
       {!hasRun ? (
         <div className="px-4 py-4 text-[12.5px] text-fg-muted">
-          IA-1 reads the project metadata + takeoff summary and infers stories,
-          duration, equipment needs, site conditions, winter risk, and proposal
-          assumptions. Click <b>Run IA-1</b> to populate.
+          IA-1 reads the project metadata + takeoff summary and infers stories, duration, equipment
+          needs, site conditions, winter risk, and proposal assumptions. Click <b>Run IA-1</b> to
+          populate.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 px-4 py-3 text-[12px] md:grid-cols-3">
           {/* Column 1 — Building basics */}
           <div className="space-y-2">
-            <Stat label="Stories" value={project.stories?.toString() ?? '—'} icon={Building2} />
+            <Stat label="Stories" value={hints?.stories?.toString() ?? '—'} icon={Building2} />
             <Stat
               label="Duration"
-              value={project.durationWeeks ? `${project.durationWeeks} wk` : '—'}
+              value={hints?.durationWeeks ? `${hints.durationWeeks} wk` : '—'}
               icon={Clock}
             />
             <Stat
               label="Winter risk"
-              value={project.winterRisk ? 'Yes' : 'No'}
+              value={hints?.winterRisk ? 'Yes' : 'No'}
               icon={Snowflake}
-              tone={project.winterRisk ? 'warn' : 'muted'}
+              tone={hints?.winterRisk ? 'warn' : 'muted'}
             />
           </div>
 
@@ -250,9 +241,7 @@ function Stat({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <Icon
-        className={`h-3.5 w-3.5 ${tone === 'warn' ? 'text-warn-500' : 'text-fg-subtle'}`}
-      />
+      <Icon className={`h-3.5 w-3.5 ${tone === 'warn' ? 'text-warn-500' : 'text-fg-subtle'}`} />
       <div className="min-w-0">
         <div className="text-[10.5px] font-semibold uppercase tracking-wider text-fg-subtle">
           {label}

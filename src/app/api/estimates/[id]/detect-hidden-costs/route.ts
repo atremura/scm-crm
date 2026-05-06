@@ -7,6 +7,7 @@ import {
   type DerivativeFormula,
 } from '@/lib/derivative-rules-engine';
 import { detectHiddenCosts } from '@/lib/ai-hidden-costs';
+import { getContextHints } from '@/lib/project-context-hints';
 
 /**
  * POST /api/estimates/[id]/detect-hidden-costs
@@ -30,10 +31,7 @@ import { detectHiddenCosts } from '@/lib/ai-hidden-costs';
  * Re-runnable: existing 'ai-derivative' lines from previous runs are
  * deleted at the start, so the result reflects current rules + AI.
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireAuth();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!(await canDo(ctx, 'estimate', 'edit'))) {
@@ -46,7 +44,7 @@ export async function POST(
     where: { id, companyId: ctx.companyId },
     include: {
       project: {
-        select: { durationWeeks: true, stories: true, siteConditions: true },
+        select: { contextHints: true },
       },
       region: { select: { name: true } },
       lines: {
@@ -120,11 +118,12 @@ export async function POST(
   }));
 
   // ---- Step 1: deterministic rules engine ----
+  const projectHints = getContextHints(estimate.project.contextHints);
   const engineResult = runRulesEngine({
     rules,
     materials: materialsForEngine,
     lines,
-    durationWeeks: estimate.project.durationWeeks ?? null,
+    durationWeeks: projectHints?.durationWeeks ?? null,
   });
 
   // ---- Step 2: AI on uncovered productivities ----
@@ -134,7 +133,10 @@ export async function POST(
 
   const uncoveredLineIds = new Set<string>();
   for (const l of lines) {
-    if (l.productivityEntryId && engineResult.uncoveredProductivityIds.includes(l.productivityEntryId)) {
+    if (
+      l.productivityEntryId &&
+      engineResult.uncoveredProductivityIds.includes(l.productivityEntryId)
+    ) {
       uncoveredLineIds.add(l.id);
     }
   }
@@ -142,7 +144,7 @@ export async function POST(
   if (uncoveredLineIds.size > 0 || rules.length === 0) {
     const directCostCents = lines.reduce(
       (s, l) => s + (l.laborCostCents ?? 0) + (l.materialCostCents ?? 0),
-      0
+      0,
     );
 
     const divisionByIdMap = new Map(divisionsRows.map((d) => [d.id, d]));
@@ -157,7 +159,7 @@ export async function POST(
         quantity: l.quantity,
         productivityMatchCode: l.productivityMatchCode,
         productivityDivision: l.productivityDivisionId
-          ? divisionByIdMap.get(l.productivityDivisionId)?.name ?? null
+          ? (divisionByIdMap.get(l.productivityDivisionId)?.name ?? null)
           : null,
         productivityScopeName:
           estimate.lines.find((el) => el.id === l.id)?.productivityEntry?.scopeName ?? null,
@@ -170,9 +172,10 @@ export async function POST(
         estimate: {
           id: estimate.id,
           region: estimate.region.name,
-          durationWeeks: estimate.project.durationWeeks ?? null,
-          stories: estimate.project.stories ?? null,
-          siteConditions: (estimate.project.siteConditions as any) ?? null,
+          durationWeeks: projectHints?.durationWeeks ?? null,
+          stories: projectHints?.stories ?? null,
+          siteConditions:
+            (projectHints?.siteConditions as Record<string, boolean> | null | undefined) ?? null,
           directCostCents,
         },
         uncoveredLines: uncoveredLinesForAi,
@@ -180,7 +183,7 @@ export async function POST(
           name: r.name,
           triggerProductivityMatchCode: r.triggerProductivityMatchCode,
           triggerDivisionName: r.triggerDivisionId
-            ? divisionByIdMap.get(r.triggerDivisionId)?.name ?? null
+            ? (divisionByIdMap.get(r.triggerDivisionId)?.name ?? null)
             : null,
           formulaKind: r.formula.kind,
         })),
@@ -207,7 +210,7 @@ export async function POST(
         {
           error: `AI step failed: ${err?.message ?? 'unknown'}. Deterministic engine still produced ${engineResult.proposals.length} proposals — re-run after fixing the AI issue.`,
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
   }
@@ -240,9 +243,7 @@ export async function POST(
             laborRateCents: null,
             laborCostCents: p.laborCostCents,
             materialCostCents: p.materialCostCents,
-            materialBreakdown: p.materialBreakdown
-              ? (p.materialBreakdown as any)
-              : undefined,
+            materialBreakdown: p.materialBreakdown ? (p.materialBreakdown as any) : undefined,
             subtotalCents: p.subtotalCents,
             displayOrder: order++,
             groupName: 'Hidden costs (auto)',
@@ -276,9 +277,7 @@ export async function POST(
               laborHours: null,
               laborRateCents: null,
               laborCostCents:
-                dl.costType === 'labor' || dl.costType === 'cleanup'
-                  ? dl.subtotalCents
-                  : null,
+                dl.costType === 'labor' || dl.costType === 'cleanup' ? dl.subtotalCents : null,
               materialCostCents: dl.costType === 'material' ? dl.subtotalCents : null,
               materialBreakdown: undefined,
               subtotalCents: dl.subtotalCents,
@@ -330,7 +329,7 @@ export async function POST(
         },
       });
     },
-    { timeout: 30_000 }
+    { timeout: 30_000 },
   );
 
   return NextResponse.json({

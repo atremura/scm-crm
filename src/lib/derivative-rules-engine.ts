@@ -42,8 +42,8 @@ export type DerivativeFormula =
   | {
       kind: 'qty_per_unit';
       factor: number;
-      uomIn: string;   // expected UOM of the trigger line
-      uomOut: string;  // UOM of the derivative line
+      uomIn: string; // expected UOM of the trigger line
+      uomOut: string; // UOM of the derivative line
       // unit cost of the derivative is read from materialIdRef on the rule
     }
   /**
@@ -58,7 +58,8 @@ export type DerivativeFormula =
     }
   /**
    * "$X per week of project duration".
-   * Example: dumpster $650/week. Uses Project.durationWeeks (IA-1 set it).
+   * Example: dumpster $650/week. Caller must pass durationWeeks (typically
+   * read from Project.contextHints.durationWeeks via getContextHints()).
    *   cents=65000
    */
   | {
@@ -114,7 +115,7 @@ export type EstimateLineForRules = {
   uom: string;
   quantity: number;
   productivityEntryId: string | null;
-  productivityMatchCode: string | null;  // joined from ProductivityEntry
+  productivityMatchCode: string | null; // joined from ProductivityEntry
   productivityDivisionId: string | null; // joined from ProductivityEntry
   laborCostCents: number | null;
   materialCostCents: number | null;
@@ -260,7 +261,7 @@ export function runRulesEngine(input: EngineInput): EngineResult {
 function evaluateRuleAgainstLine(
   rule: RuleRef,
   line: EstimateLineForRules,
-  materialById: Map<string, RuleMaterialRef>
+  materialById: Map<string, RuleMaterialRef>,
 ): DerivativeProposal | null {
   const f = rule.formula;
 
@@ -368,7 +369,7 @@ function evaluateRuleAgainstLine(
 function evaluateProjectRule(
   rule: RuleRef,
   attachTo: EstimateLineForRules,
-  input: EngineInput
+  input: EngineInput,
 ): DerivativeProposal | null {
   const f = rule.formula;
 
@@ -385,8 +386,7 @@ function evaluateProjectRule(
       uom: 'WK',
       quantity: weeks,
       materialCostCents: rule.costType === 'material' ? subtotal : null,
-      laborCostCents:
-        rule.costType === 'labor' || rule.costType === 'cleanup' ? subtotal : null,
+      laborCostCents: rule.costType === 'labor' || rule.costType === 'cleanup' ? subtotal : null,
       subtotalCents: subtotal,
       materialBreakdown: null,
       reason: `fixed_per_week: $${(f.cents / 100).toFixed(2)}/wk × ${weeks} wk = $${(subtotal / 100).toFixed(2)}.`,
@@ -403,8 +403,7 @@ function evaluateProjectRule(
       uom: 'LS',
       quantity: 1,
       materialCostCents: rule.costType === 'material' ? f.cents : null,
-      laborCostCents:
-        rule.costType === 'labor' || rule.costType === 'cleanup' ? f.cents : null,
+      laborCostCents: rule.costType === 'labor' || rule.costType === 'cleanup' ? f.cents : null,
       subtotalCents: f.cents,
       materialBreakdown: null,
       reason: `lump_sum: $${(f.cents / 100).toFixed(2)}.`,

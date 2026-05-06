@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button';
 
 type Props = {
   estimateId: string;
-  ia1RunAt: string | null;
+  /**
+   * Whether IA-1 has populated Project.contextHints. We no longer track a
+   * separate timestamp — the JSONB blob's mere presence is the signal.
+   */
+  ia1HasRun: boolean;
   ia2RunAt: string | null;
   ia2DerivativeLineCount: number;
   ia2NewRulesCount: number;
@@ -24,7 +28,7 @@ type Props = {
  */
 export function AiPassesBar({
   estimateId,
-  ia1RunAt,
+  ia1HasRun,
   ia2RunAt,
   ia2DerivativeLineCount,
   ia2NewRulesCount,
@@ -44,7 +48,7 @@ export function AiPassesBar({
         return false;
       }
       toast.success(
-        `IA-1 done · ${data.context.requiredEquipment?.length ?? 0} equip · $${(data.costCents / 100).toFixed(3)}`
+        `IA-1 done · ${data.context.requiredEquipment?.length ?? 0} equip · $${(data.costCents / 100).toFixed(3)}`,
       );
       await onRefreshed();
       return true;
@@ -68,7 +72,7 @@ export function AiPassesBar({
         return false;
       }
       toast.success(
-        `IA-2 done · ${data.engineProposalsAdded + data.aiDerivativeLinesAdded} lines · ${data.aiNewRulesQueued} rule proposals · $${(data.costCents / 100).toFixed(3)}`
+        `IA-2 done · ${data.engineProposalsAdded + data.aiDerivativeLinesAdded} lines · ${data.aiNewRulesQueued} rule proposals · $${(data.costCents / 100).toFixed(3)}`,
       );
       await onRefreshed();
       return true;
@@ -83,7 +87,7 @@ export function AiPassesBar({
   async function runAll() {
     setRunning('all');
     try {
-      // IA-1 first — IA-2 reads stories + durationWeeks for fixed_per_week rules
+      // IA-1 first — IA-2 reads contextHints (stories + durationWeeks) for fixed_per_week rules
       const ok1 = await runIa1();
       if (!ok1) return;
       await runIa2();
@@ -101,7 +105,7 @@ export function AiPassesBar({
 
       <Pill
         label="IA-1 Project Context"
-        ranAt={ia1RunAt}
+        done={ia1HasRun}
         running={running === 'ia1'}
         onClick={runIa1}
         disabled={running !== null && running !== 'ia1'}
@@ -143,16 +147,21 @@ export function AiPassesBar({
 function Pill({
   label,
   ranAt,
+  done,
   running,
   onClick,
   disabled,
 }: {
   label: string;
-  ranAt: string | null;
+  /** Optional timestamp — when present, the Pill shows ✓ + HH:MM. */
+  ranAt?: string | null;
+  /** Optional boolean — when true (and no ranAt), Pill shows ✓ without time. */
+  done?: boolean;
   running: boolean;
   onClick: () => void;
   disabled: boolean;
 }) {
+  const isDone = !!ranAt || !!done;
   return (
     <button
       type="button"
@@ -162,7 +171,7 @@ function Pill({
     >
       {running ? (
         <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
-      ) : ranAt ? (
+      ) : isDone ? (
         <CheckCircle2 className="h-3 w-3 text-emerald-400" />
       ) : (
         <Clock className="h-3 w-3 text-fg-subtle" />

@@ -58,7 +58,7 @@ Project scope analysis (PDF reading, drawing analysis, scope inference) does **N
 
 ### Why this matters
 
-- The previous "Phase 1 Project AI Analyst" (in-app Claude Files API analysis) is being **deprecated**. It will be removed in upcoming work. Do not extend it.
+- The previous "Phase 1 Project AI Analyst" (in-app Claude Files API analysis) was **demolished on 2026-05-06** (UI, endpoints, lib, schema models + columns all removed; migration `demolish_phase1_analyst_schema`). The Cowork import flow replaces it.
 - AI inside the app can only **suggest**, never create or modify project data directly. All AI output goes through the `Suggestion` table for human approval.
 - This keeps the app fast, AI cost bounded, and gives Andre the option to use the simpler "Manual Estimate" path for small jobs without any AI.
 
@@ -215,23 +215,25 @@ CI in GitHub Actions (when set up) will enforce these.
 - Excel export: working (client + internal versions)
 - PDF export: button exists, marked "soon"
 
-**Being deprecated (DO NOT EXTEND):**
+**Removed in 2026-05-06 (Phase 1 AI Analyst demolition — Tasks 1.2a/b/c):**
 
-- `src/lib/ai/scope-analyst/` (entire folder)
-- `/api/projects/[id]/analyze` endpoint
-- `/api/projects/[id]/analysis-runs` endpoints
-- `/takeoff/[id]/analysis-runs/[runId]` page
-- `components/takeoff/ai-analysis-panel.tsx`
-- Models `ProjectAnalysisRun`, `ClassificationCalibration`
-- Fields `Classification.sourceAnalysisRunId`, `aiConfidence`, `quantityBasis`, `needsTogalVerification`
-- Fields `Project.stories`, `durationWeeks`, `siteConditions`, `requiredEquipment`, `winterRisk`, `permitChecklist` (will move to `Project.contextHints` JSONB)
-- Field `ProjectDocument.anthropicFileId`
+The in-app AI scope analysis was fully demolished and replaced by the external Cowork Desktop + import flow:
 
-**Being added:**
+- 1.2a — UI + endpoints: `/api/projects/[id]/analyze`, `/api/projects/[id]/analysis-runs/*`, `/takeoff/[id]/analysis-runs/[runId]`, `components/takeoff/ai-analysis-panel.tsx`
+- 1.2b — Lib: `src/lib/ai/scope-analyst/` (entire folder, 8 files / 876 lines)
+- 1.2c — Schema (migration `demolish_phase1_analyst_schema`):
+  - Dropped models: `ProjectAnalysisRun`, `ClassificationCalibration`
+  - Dropped Classification cols: `sourceAnalysisRunId`, `aiConfidence`, `quantityBasis`, `needsTogalVerification`
+  - Dropped Project cols (consolidated into `contextHints` JSONB): `stories`, `durationWeeks`, `siteConditions`, `requiredEquipment`, `winterRisk`, `permitChecklist`, `aiContextRunAt`, `aiContextResult`
+  - Dropped Estimate col: `requiresTogalVerification`
+  - Dropped ProjectDocument col: `anthropicFileId`
+  - Added Project col: `contextHints Json?` (see `src/lib/project-context-hints.ts`)
+  - Fixed pre-existing TIMESTAMPTZ drift in 6 cols (now match DB)
+
+**Being added (Phase 2):**
 
 - `EstimateImport` model (audit row for Cowork imports)
-- `Project.contextHints` JSONB field
-- Cowork import endpoints and UI (see `docs/cowork-import-schema.md`)
+- Cowork import endpoints and UI (see `docs/cowork-import-schema.md` + `docs/cowork-import.schema.json`)
 - Manual Estimate path (small jobs, no AI)
 
 ### Master Data — partial

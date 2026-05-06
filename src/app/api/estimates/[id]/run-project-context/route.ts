@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { canDo, requireAuth } from '@/lib/permissions';
 import { analyzeProjectContext } from '@/lib/ai-project-context';
+import { toContextHintsInput } from '@/lib/project-context-hints';
 
 /**
  * POST /api/estimates/[id]/run-project-context
@@ -9,18 +10,14 @@ import { analyzeProjectContext } from '@/lib/ai-project-context';
  * IA-1 — Project Context Analyzer.
  *
  * Reads the project metadata + takeoff classification summary, sends to
- * Claude, persists the structured output back onto the Project (stories,
- * durationWeeks, siteConditions, requiredEquipment, winterRisk,
- * permitChecklist) and onto the Estimate (assumptions joined into the
- * existing Notes & Assumptions text).
+ * Claude, persists the structured output back onto Project.contextHints
+ * (JSONB blob holding stories, durationWeeks, siteConditions,
+ * requiredEquipment, winterRisk, permitChecklist) and onto the Estimate
+ * (assumptions joined into the existing Notes & Assumptions text).
  *
- * The full AI payload is persisted on Project.aiContextResult for audit.
  * Re-runnable any time — overwrites the previous values.
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireAuth();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!(await canDo(ctx, 'estimate', 'edit'))) {
@@ -79,9 +76,7 @@ export async function POST(
     .slice(0, 10)
     .map((c) => ({ name: c.name, uom: c.uom, quantity: Number(c.quantity) }));
 
-  const totalEnvelopeSf = estimate.totalEnvelopeSf
-    ? Number(estimate.totalEnvelopeSf)
-    : null;
+  const totalEnvelopeSf = estimate.totalEnvelopeSf ? Number(estimate.totalEnvelopeSf) : null;
 
   // --- Run the AI ---
   let result;
@@ -109,7 +104,7 @@ export async function POST(
     console.error('[estimates.run-project-context.POST]', err);
     return NextResponse.json(
       { error: err?.message ?? 'Project context analysis failed' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -120,16 +115,17 @@ export async function POST(
     await tx.project.update({
       where: { id: estimate.projectId },
       data: {
-        // Structured fields — overwrite previous values; Andre edits
+        // Single JSONB blob — overwrite previous values; Andre edits
         // afterwards in the UI if anything's off.
-        stories: context.stories,
-        durationWeeks: context.durationWeeks,
-        siteConditions: context.siteConditions as any,
-        requiredEquipment: context.requiredEquipment as any,
-        winterRisk: context.winterRisk,
-        permitChecklist: context.permitChecklist,
-        aiContextRunAt: new Date(),
-        aiContextResult: context as any,
+        contextHints:
+          toContextHintsInput({
+            stories: context.stories,
+            durationWeeks: context.durationWeeks,
+            siteConditions: context.siteConditions,
+            requiredEquipment: context.requiredEquipment,
+            winterRisk: context.winterRisk,
+            permitChecklist: context.permitChecklist,
+          }) ?? undefined,
       },
     });
 
@@ -141,7 +137,9 @@ export async function POST(
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
-      const existingSet = new Set(existingLines.map((s) => s.replace(/^[-•*]\s*/, '').toLowerCase()));
+      const existingSet = new Set(
+        existingLines.map((s) => s.replace(/^[-•*]\s*/, '').toLowerCase()),
+      );
       const fresh = context.assumptions
         .filter((a) => !existingSet.has(a.toLowerCase()))
         .map((a) => `- ${a}`);

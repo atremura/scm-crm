@@ -41,12 +41,9 @@ import {
   type ClassificationScope,
 } from '@/lib/takeoff-utils';
 import { rollupTotals } from '@/lib/estimate-pricing';
+import type { ProjectContextHints } from '@/lib/project-context-hints';
 import { AiSuggestDialog } from '@/components/estimate/ai-suggest-dialog';
-import {
-  ProjectContextCard,
-  type SiteConditions,
-  type RequiredEquipment,
-} from '@/components/estimate/project-context-card';
+import { ProjectContextCard } from '@/components/estimate/project-context-card';
 import { AiPassesBar } from '@/components/estimate/ai-passes-bar';
 import { EditableCell } from '@/components/estimate/editable-cell';
 
@@ -107,14 +104,8 @@ type ApiEstimate = {
     projectNumber: string | null;
     address: string | null;
     workType: string | null;
-    // IA-1 Project Context fields
-    stories: number | null;
-    durationWeeks: number | null;
-    siteConditions: SiteConditions | null;
-    requiredEquipment: RequiredEquipment[] | null;
-    winterRisk: boolean | null;
-    permitChecklist: string[] | null;
-    aiContextRunAt: string | null;
+    // IA-1 Project Context — JSONB blob; see src/lib/project-context-hints.ts
+    contextHints: ProjectContextHints | null;
     client: { id: string; companyName: string } | null;
   };
   region: { id: string; name: string; stateCode: string };
@@ -467,7 +458,7 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
       {/* AI passes banner — IA-1 + IA-2 (+ IA-3/4 placeholders) */}
       <AiPassesBar
         estimateId={estimate.id}
-        ia1RunAt={estimate.project.aiContextRunAt}
+        ia1HasRun={estimate.project.contextHints !== null}
         ia2RunAt={estimate.aiHiddenCostsRunAt}
         ia2DerivativeLineCount={estimate.lines.filter((l) => l.source === 'ai-derivative').length}
         ia2NewRulesCount={estimate.aiHiddenCostsResult?.aiNewRules ?? 0}
@@ -479,13 +470,7 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
         estimateId={estimate.id}
         project={{
           name: estimate.project.name,
-          stories: estimate.project.stories,
-          durationWeeks: estimate.project.durationWeeks,
-          siteConditions: estimate.project.siteConditions,
-          requiredEquipment: estimate.project.requiredEquipment,
-          winterRisk: estimate.project.winterRisk,
-          permitChecklist: estimate.project.permitChecklist,
-          aiContextRunAt: estimate.project.aiContextRunAt,
+          contextHints: estimate.project.contextHints,
         }}
         onRefreshed={loadEstimate}
       />

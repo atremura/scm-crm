@@ -48,15 +48,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
             projectNumber: true,
             address: true,
             workType: true,
-            // IA-1 Project Context fields — surfaced on the Estimate page so
-            // Andre sees stories / equipment / assumptions inline.
-            stories: true,
-            durationWeeks: true,
-            siteConditions: true,
-            requiredEquipment: true,
-            winterRisk: true,
-            permitChecklist: true,
-            aiContextRunAt: true,
+            // IA-1 Project Context — JSONB blob surfaced on the Estimate page
+            // so Andre sees stories / equipment / assumptions inline.
+            // See src/lib/project-context-hints.ts for the type contract.
+            contextHints: true,
             client: { select: { id: true, companyName: true } },
             classifications: {
               orderBy: { createdAt: 'asc' },

@@ -64,10 +64,6 @@ model Company {
   derivativeCostRules DerivativeCostRule[]
   suggestions         Suggestion[]
 
-  // Phase 1 — AI scope analysis runs + per-classification calibration
-  analysisRuns ProjectAnalysisRun[]
-  calibrations ClassificationCalibration[]
-
   @@map("companies")
 }
 
@@ -119,7 +115,6 @@ model User {
   takeoffImports           TakeoffImport[]        @relation("TakeoffImporter")
   estimatesOwned           Estimate[]             @relation("EstimateOwner")
   estimatesReceivedFrom    Estimate[]             @relation("EstimateReceivedFrom")
-  analysisRunsReviewed     ProjectAnalysisRun[]   @relation("AnalysisRunReviewer")
 
   @@index([companyId])
   @@map("users")
@@ -404,17 +399,12 @@ model Project {
   estimateAcceptedAt  DateTime? @map("estimate_accepted_at")
   estimateHandoffNote String?   @map("estimate_handoff_note")
 
-  // Project context — populated by IA-1 (Project Context Analyzer) but
-  // editable by the estimator. Drives equipment-rules and schedule logic
-  // downstream (siding @ stories ≥ 2 → lift; winter premium; etc).
-  stories           Int?
-  durationWeeks     Int?      @map("duration_weeks")
-  siteConditions    Json?     @map("site_conditions") // { urban, lotTight, prevailingWage, ... }
-  requiredEquipment Json?     @map("required_equipment") // [{ type, weeksFrom, weeksTo, justification }]
-  winterRisk        Boolean?  @map("winter_risk")
-  permitChecklist   String[]  @map("permit_checklist")
-  aiContextRunAt    DateTime? @map("ai_context_run_at")
-  aiContextResult   Json?     @map("ai_context_result") // full IA-1 payload for audit
+  // Project context hints — JSONB blob containing stories, durationWeeks,
+  // siteConditions, requiredEquipment, winterRisk, permitChecklist and any
+  // future fields. Populated by IA-1 (via Suggestion approval) or by the
+  // Cowork importer (Phase 2). See src/lib/project-context-hints.ts for
+  // the type contract.
+  contextHints Json? @map("context_hints")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -429,8 +419,6 @@ model Project {
   classifications  Classification[]
   imports          TakeoffImport[]
   estimate         Estimate?
-  analysisRuns     ProjectAnalysisRun[]
-  calibrations     ClassificationCalibration[]
 
   @@index([companyId])
   @@index([bidId])
@@ -449,9 +437,6 @@ model ProjectDocument {
   fileSizeKb   Int?     @map("file_size_kb")
   documentType String   @map("document_type")
   note         String?
-  // Cached Anthropic Files API id. Lazy-populated by the scope-analyst
-  // pipeline on first use. Lets re-runs skip the upload + reuse cache.
-  anthropicFileId String? @map("anthropic_file_id")
   uploadedBy   String   @map("uploaded_by")
   uploadedAt   DateTime @default(now()) @map("uploaded_at")
 
@@ -548,29 +533,18 @@ model Classification {
   // Lets the AI pre-filter the catalog by division before any fuzzy text.
   divisionId String? @map("division_id")
 
-  // Phase 1 — AI provenance. Populated when this Classification was
-  // accepted from a ProjectAnalysisRun proposal. Manual / Togal-imported
-  // classifications leave these null.
-  sourceAnalysisRunId    String?  @map("source_analysis_run_id")
-  aiConfidence           Int?     @map("ai_confidence")          // 0-100
-  quantityBasis          String?  @map("quantity_basis")         // narrative of how AI arrived at qty
-  needsTogalVerification Boolean  @default(false) @map("needs_togal_verification")
-
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company       Company                     @relation(fields: [companyId], references: [id])
-  project       Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  template      ClassificationTemplate?     @relation(fields: [templateId], references: [id])
-  division      Division?                   @relation(fields: [divisionId], references: [id])
+  company       Company                 @relation(fields: [companyId], references: [id])
+  project       Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template      ClassificationTemplate? @relation(fields: [templateId], references: [id])
+  division      Division?               @relation(fields: [divisionId], references: [id])
   estimateLines EstimateLine[]
-  sourceAnalysisRun ProjectAnalysisRun?     @relation(fields: [sourceAnalysisRunId], references: [id])
-  calibrations  ClassificationCalibration[]
 
   @@index([companyId])
   @@index([projectId])
   @@index([divisionId])
-  @@index([sourceAnalysisRunId])
   @@map("classifications")
 }
 
@@ -622,7 +596,6 @@ model Division {
   assemblies          Assembly[]
   classifications     Classification[]
   derivativeCostRules DerivativeCostRule[]
-  calibrations        ClassificationCalibration[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -931,13 +904,8 @@ model Estimate {
   // IA-2 Hidden Cost Detector — last run timestamp + raw payload for audit.
   // Derivative lines are persisted as EstimateLine rows with source='ai-derivative';
   // this column captures the AI's reasoning + costs even after lines are pruned.
-  aiHiddenCostsRunAt  DateTime? @map("ai_hidden_costs_run_at")
+  aiHiddenCostsRunAt  DateTime? @map("ai_hidden_costs_run_at") @db.Timestamptz(6)
   aiHiddenCostsResult Json?     @map("ai_hidden_costs_result")
-
-  // Phase 1 — flagged when any line is sourced from a ProjectAnalysisRun
-  // and the gate at submitted_to_client requires Togal verification on
-  // top-value items.
-  requiresTogalVerification Boolean @default(false) @map("requires_togal_verification")
 
   // Proposal output
   proposalNumber String?   @map("proposal_number")
@@ -1109,8 +1077,8 @@ model DerivativeCostRule {
   createdBy     String  @default("manual") @map("created_by")
   notes         String?
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   company       Company        @relation(fields: [companyId], references: [id])
   division      Division?      @relation(fields: [triggerDivisionId], references: [id])
@@ -1154,13 +1122,13 @@ model Suggestion {
   // Review state
   status         String    @default("pending")
   reviewedById   String?   @map("reviewed_by_id")
-  reviewedAt     DateTime? @map("reviewed_at")
+  reviewedAt     DateTime? @map("reviewed_at") @db.Timestamptz(6)
   reviewNote     String?   @map("review_note")
   appliedToTable String?   @map("applied_to_table") // 'productivity_entries' | 'materials' | 'derivative_cost_rules'
   appliedToId    String?   @map("applied_to_id") // FK in that table once approved
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   company Company @relation(fields: [companyId], references: [id])
 
@@ -1169,122 +1137,3 @@ model Suggestion {
   @@map("suggestions")
 }
 
-// ============================================================
-// Phase 1 — Project AI Analyst
-// ============================================================
-
-// One execution of the AI scope-analysis pipeline against a project's
-// PDFs (plans + specs). Mirrors `BidExtraction`'s audit pattern: the
-// raw request and response are persisted so we can replay or debug
-// later, and every cost/token tally lands here for billing.
-//
-// Status lifecycle:
-//   pending             → run created, waiting on review
-//   accepted            → all proposed items accepted
-//   partially_accepted  → some accepted, some rejected
-//   rejected            → all rejected (or soft-deleted run)
-//   failed              → API or validation error; see errorMessage
-model ProjectAnalysisRun {
-  id        String @id @default(uuid())
-  companyId String @map("company_id")
-  projectId String @map("project_id")
-
-  // API call audit
-  modelUsed        String   @map("model_used")
-  promptVersion    String   @map("prompt_version")
-  inputTokens      Int?     @map("input_tokens")
-  outputTokens     Int?     @map("output_tokens")
-  cacheReadTokens  Int?     @map("cache_read_tokens")
-  cacheWriteTokens Int?     @map("cache_write_tokens")
-  costCents        Decimal? @map("cost_cents") @db.Decimal(10, 4)
-
-  // Snapshot of the ProjectDocument.id values fed to the API
-  documentIds String[] @map("document_ids")
-
-  // Full payloads for replay / debugging
-  requestPayload  Json    @map("request_payload")
-  responsePayload Json    @map("response_payload")
-  parsedResult    Json?   @map("parsed_result")
-  errorMessage    String? @map("error_message")
-
-  // Review state
-  status     String    @default("pending")
-  reviewedBy String?   @map("reviewed_by")
-  reviewedAt DateTime? @map("reviewed_at")
-  reviewNote String?   @map("review_note")
-
-  // Counters for dashboard
-  itemsProposed Int @default(0) @map("items_proposed")
-  itemsAccepted Int @default(0) @map("items_accepted")
-  itemsRejected Int @default(0) @map("items_rejected")
-
-  startedAt   DateTime  @default(now()) @map("started_at")
-  completedAt DateTime? @map("completed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-
-  company         Company                     @relation(fields: [companyId], references: [id])
-  project         Project                     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  reviewer        User?                       @relation("AnalysisRunReviewer", fields: [reviewedBy], references: [id])
-  classifications Classification[]
-  calibrations    ClassificationCalibration[]
-
-  @@index([companyId])
-  @@index([projectId])
-  @@index([status])
-  @@map("project_analysis_runs")
-}
-
-// One row per item PROPOSED by the AI in a ProjectAnalysisRun, populated
-// at accept time even if the user rejected the item. Lets us measure
-// AI accuracy over time (proposed vs final qty/uom; eventual Togal
-// verification) and bias-by-division for the "Verify Togal" gate.
-model ClassificationCalibration {
-  id               String  @id @default(uuid())
-  companyId        String  @map("company_id")
-  projectId        String  @map("project_id")
-  analysisRunId    String  @map("analysis_run_id")
-  // null when the proposal was rejected (no Classification was created)
-  classificationId String? @map("classification_id")
-
-  // Snapshot of what the AI proposed
-  proposedName             String  @map("proposed_name")
-  proposedExternalId       String? @map("proposed_external_id")
-  proposedQuantity         Decimal @map("proposed_quantity") @db.Decimal(14, 3)
-  proposedUom              String  @map("proposed_uom")
-  proposedScope            String  @map("proposed_scope")
-  proposedConfidence       Int     @map("proposed_confidence") // 0-100
-  proposedDivisionHint     String? @map("proposed_division_hint")
-  proposedProductivityHint String? @map("proposed_productivity_hint")
-  promptVersion            String  @map("prompt_version")
-
-  // What the user kept after review
-  finalQuantity        Decimal? @map("final_quantity") @db.Decimal(14, 3)
-  finalUom             String?  @map("final_uom")
-  wasAccepted          Boolean  @default(false) @map("was_accepted")
-  quantityDeltaPercent Decimal? @map("quantity_delta_percent") @db.Decimal(8, 3)
-
-  // Filled later when the user traces the same item in Togal
-  togalVerifiedQuantity Decimal?  @map("togal_verified_quantity") @db.Decimal(14, 3)
-  togalVerifiedAt       DateTime? @map("togal_verified_at")
-
-  // Aggregation hints (denormalized from resolver output)
-  divisionId String? @map("division_id")
-  matchCode  String? @map("match_code")
-
-  notes     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  company        Company            @relation(fields: [companyId], references: [id])
-  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  analysisRun    ProjectAnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  classification Classification?    @relation(fields: [classificationId], references: [id])
-  division       Division?          @relation(fields: [divisionId], references: [id])
-
-  @@index([companyId])
-  @@index([projectId])
-  @@index([analysisRunId])
-  @@index([divisionId, matchCode])
-  @@map("classification_calibration")
-}
