@@ -12,3 +12,21 @@ export type {
   Risk,
   ReviewFlag,
 } from './schema';
+
+export {
+  validateIntegrity,
+  checkMaterialCoverage,
+  checkProductivityCoverage,
+  checkHistogramProductivityBand,
+  checkServiceCodeConsistency,
+  checkAllowanceAmount,
+  checkGeometryPlausibility,
+  checkRecommendedScenarioExists,
+} from './integrity-rules';
+
+export type {
+  IntegrityRuleId,
+  IntegritySeverity,
+  IntegrityViolation,
+  IntegrityCheckResult,
+} from './integrity-rules';
