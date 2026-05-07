@@ -64,6 +64,9 @@ model Company {
   derivativeCostRules DerivativeCostRule[]
   suggestions         Suggestion[]
 
+  // Cowork JSON import audit rows (Phase 2)
+  estimateImports EstimateImport[]
+
   @@map("companies")
 }
 
@@ -115,6 +118,10 @@ model User {
   takeoffImports           TakeoffImport[]        @relation("TakeoffImporter")
   estimatesOwned           Estimate[]             @relation("EstimateOwner")
   estimatesReceivedFrom    Estimate[]             @relation("EstimateReceivedFrom")
+
+  // Cowork JSON import audit (Phase 2)
+  estimateImportsApplied  EstimateImport[] @relation("EstimateImportAppliedBy")
+  estimateImportsRejected EstimateImport[] @relation("EstimateImportRejectedBy")
 
   @@index([companyId])
   @@map("users")
@@ -419,6 +426,9 @@ model Project {
   classifications  Classification[]
   imports          TakeoffImport[]
   estimate         Estimate?
+
+  // Cowork JSON import audit (Phase 2)
+  estimateImports EstimateImport[]
 
   @@index([companyId])
   @@index([bidId])
@@ -927,6 +937,9 @@ model Estimate {
   lines          EstimateLine[]
   appliedFactors EstimateCostFactor[]
 
+  // Cowork JSON import audit (Phase 2)
+  estimateImports EstimateImport[]
+
   @@index([companyId])
   @@index([status])
   @@map("estimates")
@@ -1135,5 +1148,66 @@ model Suggestion {
   @@index([companyId, status])
   @@index([type, status])
   @@map("suggestions")
+}
+
+// ============================================================
+// COWORK IMPORT — Phase 2
+// ============================================================
+
+enum ImportSource {
+  cowork
+
+  @@map("import_source")
+}
+
+enum ImportStatus {
+  pending
+  previewed
+  applied
+  rejected
+  failed
+
+  @@map("import_status")
+}
+
+// Audit row for every Cowork JSON upload attempt.
+// Stores the raw payload verbatim for replay/audit; tracks lifecycle
+// pending -> previewed -> applied | rejected | failed.
+// See docs/cowork-import-schema.md for the architecture and rules.
+model EstimateImport {
+  id            String  @id @default(cuid())
+  companyId     String  @map("company_id")
+  projectId     String  @map("project_id")
+  estimateId    String? @map("estimate_id")
+
+  source        ImportSource @default(cowork)
+  schemaVersion String       @map("schema_version")
+  fileName      String       @map("file_name")
+  fileHash      String       @map("file_hash")
+  fileBlobUrl   String?      @map("file_blob_url")
+
+  status        ImportStatus @default(pending)
+
+  rawPayload     Json  @map("raw_payload")
+  previewSummary Json? @map("preview_summary")
+
+  appliedById     String?   @map("applied_by_id")
+  appliedAt       DateTime? @map("applied_at") @db.Timestamptz(6)
+  rejectedById    String?   @map("rejected_by_id")
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason String?   @map("rejection_reason") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade, map: "estimate_imports_company_fk")
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade, map: "estimate_imports_project_fk")
+  estimate   Estimate? @relation(fields: [estimateId], references: [id], onDelete: SetNull, map: "estimate_imports_estimate_fk")
+  appliedBy  User?     @relation("EstimateImportAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull, map: "estimate_imports_applied_by_fk")
+  rejectedBy User?     @relation("EstimateImportRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull, map: "estimate_imports_rejected_by_fk")
+
+  @@unique([projectId, fileHash], map: "estimate_imports_project_file_unique")
+  @@index([projectId, status], map: "estimate_imports_project_status_idx")
+  @@index([companyId, createdAt(sort: Desc)], map: "estimate_imports_company_created_idx")
+  @@map("estimate_imports")
 }
 
