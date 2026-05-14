@@ -53,3 +53,8 @@ next-env.d.ts
 
 # local Claude Code state
 /.claude/
+
+# Local-only: Cowork architecture artifacts (schema, skills, SQL,
+# ARCHITECTURE.md) — useful reference but not part of scm-crm
+# source.
+_architecture/
