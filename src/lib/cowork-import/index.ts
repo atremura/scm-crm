@@ -30,3 +30,11 @@ export type {
   IntegrityViolation,
   IntegrityCheckResult,
 } from './integrity-rules';
+
+export { computeFileHash } from './compute-file-hash';
+
+export { checkTenantSlugMatch } from './tenant-rule';
+
+export { previewImport, buildSummary } from './import-service';
+
+export type { ImportPreviewResult, ImportPreviewInput, PreviewSummary } from './import-service';
