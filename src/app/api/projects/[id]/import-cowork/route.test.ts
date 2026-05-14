@@ -20,7 +20,7 @@ vi.mock('@/lib/cowork-import', () => ({
 }));
 
 // Imports AFTER mocks so they pick up the mocked versions.
-import { POST } from './route';
+import { POST, GET } from './route';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, canDo } from '@/lib/permissions';
 import { previewImport } from '@/lib/cowork-import';
@@ -272,5 +272,35 @@ describe('POST /api/projects/[id]/import-cowork', () => {
       const serviceCall = mockedPreviewImport.mock.calls[0][1];
       expect(serviceCall.fileName).toBe('import.json');
     });
+  });
+});
+
+describe('GET /api/projects/[id]/import-cowork', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedRequireAuth.mockResolvedValue(makeAuthCtx());
+    mockedCanDo.mockResolvedValue(true);
+    mockedProjectFindFirst.mockResolvedValue({ id: 'project-1' } as never);
+  });
+
+  it('returns 401 when not authenticated', async () => {
+    mockedRequireAuth.mockResolvedValueOnce(null);
+    const req = new NextRequest('http://localhost/api/projects/p1/import-cowork');
+    const res = await GET(req, makeContext());
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when user lacks estimate.view permission', async () => {
+    mockedCanDo.mockResolvedValueOnce(false);
+    const req = new NextRequest('http://localhost/api/projects/p1/import-cowork');
+    const res = await GET(req, makeContext());
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 when project not found', async () => {
+    mockedProjectFindFirst.mockResolvedValueOnce(null);
+    const req = new NextRequest('http://localhost/api/projects/p1/import-cowork');
+    const res = await GET(req, makeContext('other-project'));
+    expect(res.status).toBe(404);
   });
 });

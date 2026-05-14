@@ -161,3 +161,59 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
   }
 }
+
+/**
+ * GET /api/projects/[id]/import-cowork
+ *
+ * Lists all EstimateImport rows for a project, ordered by createdAt DESC.
+ * Read-only — requires estimate.view permission.
+ *
+ * Returns metadata only (no rawPayload) to keep payload light.
+ * For full payload of a single import, use GET /import-cowork/[importId].
+ */
+export async function GET(_request: NextRequest, context: RouteContext) {
+  const ctx = await requireAuth();
+  if (!ctx) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const allowed = await canDo(ctx, 'estimate', 'view');
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Forbidden: missing estimate.view permission' },
+      { status: 403 },
+    );
+  }
+
+  const { id: projectId } = await context.params;
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, companyId: ctx.companyId },
+    select: { id: true },
+  });
+
+  if (!project) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  }
+
+  const imports = await prisma.estimateImport.findMany({
+    where: { projectId, companyId: ctx.companyId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      schemaVersion: true,
+      fileName: true,
+      fileHash: true,
+      status: true,
+      estimateId: true,
+      appliedById: true,
+      appliedAt: true,
+      rejectedById: true,
+      rejectedAt: true,
+      rejectionReason: true,
+      createdAt: true,
+    },
+  });
+
+  return NextResponse.json({ imports }, { status: 200 });
+}
