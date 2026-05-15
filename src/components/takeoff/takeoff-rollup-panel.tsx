@@ -31,6 +31,7 @@ import {
   type ClassificationRow,
 } from '@/components/takeoff/classifications-sidebar';
 import { ImportTogalDialog } from '@/components/takeoff/import-togal-dialog';
+import { CoworkImportTrigger } from '@/components/cowork-import/cowork-import-trigger';
 import { toggleClassificationScope } from '@/lib/classifications-actions';
 
 type ProjectLite = {
@@ -284,6 +285,7 @@ export function TakeoffRollupPanel({ project, currentUserId, onProjectChanged }:
             <Download className="h-3.5 w-3.5" />
             Export CSV
           </Button>
+          <CoworkImportTrigger projectId={project.id} />
           <Button
             size="sm"
             onClick={() => setSendOpen(true)}
@@ -361,6 +363,7 @@ export function TakeoffRollupPanel({ project, currentUserId, onProjectChanged }:
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Import from Togal
             </Button>
+            <CoworkImportTrigger projectId={project.id} />
             <Button asChild variant="outline" size="sm">
               <Link href={`/takeoff/${project.id}?tab=documents`}>
                 <ExternalLink className="h-3.5 w-3.5" />
