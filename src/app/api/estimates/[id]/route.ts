@@ -166,3 +166,64 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 }
+
+/**
+ * DELETE /api/estimates/[id]
+ *
+ * Permanently deletes an Estimate:
+ *   - Deletes EstimateLines via Prisma onDelete: Cascade
+ *   - Deletes any EstimateImport row(s) linked to this estimate
+ *   - Reverts Project.status to 'active' and clears estimateAcceptedAt
+ *
+ * Requires estimate.delete permission. IDOR-scoped by companyId.
+ *
+ * Replaces the ad-hoc scripts/delete-estimate.ts utility — needed
+ * during Cowork import iteration when an applied JSON turns out wrong
+ * and the user wants to wipe and re-import.
+ */
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await requireAuth();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!(await canDo(ctx, 'estimate', 'delete'))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const { id } = await params;
+
+  const existing = await prisma.estimate.findFirst({
+    where: { id, companyId: ctx.companyId },
+    select: { id: true, projectId: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: 'Estimate not found' }, { status: 404 });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Delete linked EstimateImports first (FK on Estimate via estimateId
+      // is onDelete: SetNull, so this isn't strictly required for the
+      // delete to succeed — but we wipe the audit linkage to avoid
+      // dangling references in the import history list).
+      await tx.estimateImport.deleteMany({
+        where: { estimateId: existing.id },
+      });
+
+      // Delete the Estimate; EstimateLines cascade via schema.
+      await tx.estimate.delete({ where: { id: existing.id } });
+
+      // Revert project status so the user can re-import / re-accept.
+      await tx.project.update({
+        where: { id: existing.projectId },
+        data: { status: 'active', estimateAcceptedAt: null },
+      });
+    });
+
+    return NextResponse.json({ success: true, projectId: existing.projectId });
+  } catch (err: any) {
+    console.error('[estimates.[id].DELETE]', err);
+    return NextResponse.json(
+      { error: err?.message ?? 'Failed to delete estimate' },
+      { status: 500 },
+    );
+  }
+}

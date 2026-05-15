@@ -46,6 +46,7 @@ import { AiSuggestDialog } from '@/components/estimate/ai-suggest-dialog';
 import { ProjectContextCard } from '@/components/estimate/project-context-card';
 import { AiPassesBar } from '@/components/estimate/ai-passes-bar';
 import { EditableCell } from '@/components/estimate/editable-cell';
+import { DeleteEstimateButton } from '@/components/estimate/delete-estimate-button';
 
 type ApiLine = {
   id: string;
@@ -309,42 +310,51 @@ export default function EstimatePage({ params }: { params: Promise<{ id: string 
           )}
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Download className="h-3.5 w-3.5" />
-              Export
-              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>Client-facing (no OH&P)</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <a href={`/api/estimates/${estimate.id}/export?type=client&format=xlsx`} download>
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                Excel — Client proposal
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <FileText className="h-3.5 w-3.5" />
-              PDF — Client proposal
-              <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Internal (full breakdown)</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <a href={`/api/estimates/${estimate.id}/export?type=internal&format=xlsx`} download>
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                Excel — Internal
-              </a>
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <FileText className="h-3.5 w-3.5" />
-              PDF — Internal
-              <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-2">
+          <DeleteEstimateButton
+            estimateId={estimate.id}
+            projectId={estimate.project.id}
+            projectName={estimate.project.name}
+            projectNumber={estimate.project.projectNumber}
+            estimateTotal={dollarsCompact(totals.totalCents)}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="h-3.5 w-3.5" />
+                Export
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>Client-facing (no OH&P)</DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <a href={`/api/estimates/${estimate.id}/export?type=client&format=xlsx`} download>
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Excel — Client proposal
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                <FileText className="h-3.5 w-3.5" />
+                PDF — Client proposal
+                <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Internal (full breakdown)</DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <a href={`/api/estimates/${estimate.id}/export?type=internal&format=xlsx`} download>
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Excel — Internal
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                <FileText className="h-3.5 w-3.5" />
+                PDF — Internal
+                <span className="ml-auto text-[10px] text-fg-subtle">soon</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Needs-review banner */}
