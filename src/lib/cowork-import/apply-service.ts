@@ -152,41 +152,105 @@ export async function applyImport(
         select: { id: true },
       });
 
-      // 4b. Loop scope_items.
+      // 4b. Group eligible scope_items by service_code, then create one
+      // EstimateLine per UNIQUE service_code.
+      //
+      // Rationale: a Cowork payload can emit multiple scope_items that
+      // share a single service_code (e.g. F-09 covering "Sill plates",
+      // "Blocking", "Fireblocking" as 3 distinct rows). The matching
+      // takeoff_items / materials / labor_productivity rows are all
+      // keyed by service_code, so iterating scope_items directly would
+      // re-apply the same takeoffs/materials N times → inflated totals.
+      //
+      // Consolidation rules:
+      //   - 1 EstimateLine per distinct service_code
+      //   - description: ' · '-joined from all sharing scope_items
+      //   - notes: concatenated, prefixed with "Consolidated from N
+      //     scope items." when N > 1
+      //   - quantity: sum of takeoff quantities IF all takeoffs share
+      //     UOM; otherwise use first takeoff (with console.warn)
+      //   - everything else (materials, productivity, waste) computed
+      //     from the same service_code filter, but only ONCE per group
+      const eligibleScopes = payload.scope_items.filter((s) => {
+        if (s.type === 'NOTE') return false;
+        if (s.status === 'BY_OTHERS' || s.status === 'BY_OWNER') return false;
+        if (s.status === 'EXCLUDED') return false;
+        return true;
+      });
+
+      // Preserve insertion order via Map (ES2015+ guarantees order).
+      const scopesByCode = new Map<string, typeof eligibleScopes>();
+      for (const s of eligibleScopes) {
+        const arr = scopesByCode.get(s.service_code);
+        if (arr) {
+          arr.push(s);
+        } else {
+          scopesByCode.set(s.service_code, [s]);
+        }
+      }
+
       const classificationIds: string[] = [];
       const lineIds: string[] = [];
 
-      for (const scope of payload.scope_items) {
-        // Skip non-cost items.
-        if (scope.type === 'NOTE') continue;
-        if (scope.status === 'BY_OTHERS' || scope.status === 'BY_OWNER') continue;
-        if (scope.status === 'EXCLUDED') continue;
-
-        const isAllowance = scope.status === 'ALLOWANCE';
+      for (const [serviceCode, scopes] of scopesByCode) {
+        // First scope governs status, allowance_amount, category, etc.
+        // (Mixing status within a service_code group is a payload bug;
+        // we follow the first scope as the canonical record.)
+        const primary = scopes[0];
+        const isAllowance = primary.status === 'ALLOWANCE';
 
         // 4b-i. Aggregate from JSON for this service_code.
-        const takeoffs = payload.takeoff_items.filter((t) => t.service_code === scope.service_code);
-        const materials = payload.materials.filter((m) => m.service_code === scope.service_code);
+        const takeoffs = payload.takeoff_items.filter((t) => t.service_code === serviceCode);
+        const materials = payload.materials.filter((m) => m.service_code === serviceCode);
         const productivity = payload.labor_productivity.filter(
-          (p) => p.service_code === scope.service_code,
+          (p) => p.service_code === serviceCode,
         );
 
-        // For allowance: quantity=1, unit='LOT', no labor.
+        // 4b-ii. Quantity + UOM (with mixed-UOM guard).
         let quantity: number;
         let uom: string;
         if (isAllowance) {
           quantity = 1;
           uom = 'LOT';
+        } else if (takeoffs.length === 0) {
+          quantity = 0;
+          uom = 'EA';
         } else {
-          quantity = takeoffs.reduce((s, t) => s + t.quantity, 0);
-          uom = takeoffs[0]?.unit ?? 'EA';
+          const uniqueUoms = new Set(takeoffs.map((t) => t.unit));
+          if (uniqueUoms.size === 1) {
+            quantity = takeoffs.reduce((s, t) => s + t.quantity, 0);
+            uom = takeoffs[0].unit;
+          } else {
+            console.warn(
+              `[cowork-import] Service ${serviceCode} has mixed UOMs (${Array.from(uniqueUoms).join(
+                ', ',
+              )}). Using first takeoff's quantity + UOM.`,
+            );
+            quantity = takeoffs[0].quantity;
+            uom = takeoffs[0].unit;
+          }
         }
 
-        // 4b-ii. Upsert Classification by externalId = service_code.
+        // 4b-iii. Build consolidated description + notes.
+        const description =
+          scopes.length === 1
+            ? scopes[0].description
+            : scopes.map((s) => s.description).join(' · ');
+
+        const notesParts: string[] = [];
+        if (scopes.length > 1) {
+          notesParts.push(`Consolidated from ${scopes.length} scope items.`);
+        }
+        for (const s of scopes) {
+          if (s.notes) notesParts.push(s.notes);
+        }
+        const consolidatedNotes = notesParts.length > 0 ? notesParts.join(' / ') : null;
+
+        // 4b-iv. Upsert Classification by externalId = service_code.
         const existingClassification = await tx.classification.findFirst({
           where: {
             projectId,
-            externalId: { equals: scope.service_code, mode: 'insensitive' },
+            externalId: { equals: serviceCode, mode: 'insensitive' },
           },
           select: { id: true },
         });
@@ -196,10 +260,10 @@ export async function applyImport(
           const updated = await tx.classification.update({
             where: { id: existingClassification.id },
             data: {
-              name: scope.description,
+              name: description,
               quantity,
               scope: 'service_and_material',
-              note: scope.notes ?? null,
+              note: consolidatedNotes,
             },
             select: { id: true },
           });
@@ -209,13 +273,13 @@ export async function applyImport(
             data: {
               companyId,
               projectId,
-              externalId: scope.service_code,
-              name: scope.description,
-              type: scope.category,
+              externalId: serviceCode,
+              name: description,
+              type: primary.category,
               uom,
               scope: 'service_and_material',
               quantity,
-              note: scope.notes ?? null,
+              note: consolidatedNotes,
             },
             select: { id: true },
           });
@@ -223,10 +287,9 @@ export async function applyImport(
         }
         classificationIds.push(classificationId);
 
-        // 4b-iii. Build materialBreakdown JSON.
-        // Aggregate waste across takeoffs of this service_code — use max for
-        // conservative material overbuy. Computed once per scope_item,
-        // not per material (all materials share the same service_code here).
+        // 4b-v. Build materialBreakdown JSON.
+        // Aggregate waste across takeoffs of this service_code — use max
+        // for conservative material overbuy. Computed once per service_code.
         const maxWaste =
           takeoffs.length > 0 ? Math.max(...takeoffs.map((t) => t.waste_pct ?? 0)) : 0;
 
@@ -245,23 +308,20 @@ export async function applyImport(
         });
 
         const materialCostCents = isAllowance
-          ? Math.round((scope.allowance_amount ?? 0) * 100)
+          ? Math.round((primary.allowance_amount ?? 0) * 100)
           : materialBreakdown.reduce((s, m) => s + m.subtotalCents, 0);
 
-        // 4b-iv. Labor (skip if allowance).
+        // 4b-vi. Labor (skip if allowance).
         let mhPerUnit: number | null = null;
         let laborHours: number | null = null;
         let laborRateCents: number | null = null;
         let laborCostCents: number | null = null;
 
         if (!isAllowance && productivity.length > 0) {
-          // Sum total_mh across all productivity rows for this service_code.
           const totalMh = productivity.reduce((s, p) => s + (p.total_mh ?? 0), 0);
-          // Weighted mh_per_unit against aggregated takeoff quantity.
           mhPerUnit = quantity > 0 ? totalMh / quantity : 0;
           laborHours = totalMh;
 
-          // Pick first productivity's primary trade for rate.
           const primaryProd = productivity[0];
           const primaryTradeCode = primaryProd.crew_composition?.[0]?.trade_code;
           if (primaryTradeCode) {
@@ -277,23 +337,23 @@ export async function applyImport(
 
         const subtotalCents = (materialCostCents ?? 0) + (laborCostCents ?? 0);
 
-        // 4b-v. productivityEntryId / laborTradeId are set to null intentionally.
-        // Cowork is authoritative on pricing; we snapshot productivity data
-        // from the payload (mhPerUnit, laborHours, laborRateCents) without
-        // linking to master ProductivityEntry / LaborRate records. A future
-        // iteration could add fuzzy matching, but it's not required for the
-        // snapshot-driven import flow.
+        // 4b-vii. productivityEntryId / laborTradeId are set to null
+        // intentionally. Cowork is authoritative on pricing; we snapshot
+        // productivity data from the payload (mhPerUnit, laborHours,
+        // laborRateCents) without linking to master ProductivityEntry /
+        // LaborRate records. A future iteration could add fuzzy matching,
+        // but it's not required for the snapshot-driven import flow.
         const productivityEntryId: string | null = null;
         const laborTradeId: string | null = null;
 
-        // 4b-vi. Create EstimateLine.
+        // 4b-viii. Create EstimateLine.
         const line = await tx.estimateLine.create({
           data: {
             companyId,
             estimateId: estimate.id,
             classificationId,
-            name: scope.description,
-            externalId: scope.service_code,
+            name: description,
+            externalId: serviceCode,
             scope: 'service_and_material',
             uom,
             quantity,
@@ -311,11 +371,11 @@ export async function applyImport(
             displayOrder: classificationIds.length * 10,
             source: isAllowance ? 'cowork-import-allowance' : 'cowork-import',
             suggestedByAi: false,
-            aiConfidence: scope.ai_confidence?.score
-              ? Math.round(scope.ai_confidence.score * 100)
+            aiConfidence: primary.ai_confidence?.score
+              ? Math.round(primary.ai_confidence.score * 100)
               : 100,
             needsReview: false,
-            notes: scope.notes ?? null,
+            notes: consolidatedNotes,
           },
           select: { id: true },
         });

@@ -422,6 +422,96 @@ describe('applyImport', () => {
     });
   });
 
+  describe('consolidation by service_code', () => {
+    it('consolidates multiple scope_items sharing the same service_code into ONE EstimateLine', async () => {
+      const payload = makeValidPayloadJson();
+      // Fixture has 1 scope_item S-01. Add 2 more sharing the same code.
+      // (Real-world example: F-09 had 3 scope_items for Sill plates,
+      // Blocking, Fireblocking — all under the same service_code.)
+      payload.scope_items.push({
+        service_code: 'S-01',
+        category: 'SIDING SYSTEM',
+        description: 'Test siding scope #2 — blocking',
+        status: 'INCLUDED',
+        type: 'M+L',
+      });
+      payload.scope_items.push({
+        service_code: 'S-01',
+        category: 'SIDING SYSTEM',
+        description: 'Test siding scope #3 — fireblocking',
+        status: 'INCLUDED',
+        type: 'M+L',
+      });
+
+      prisma.estimateImport.findFirst.mockResolvedValueOnce(makeImportRow({ rawPayload: payload }));
+
+      await applyImport(prisma as unknown as PrismaClient, makeInput());
+
+      const lineCalls = prisma.estimateLine.create.mock.calls;
+      // 1 line for 3 scope_items sharing S-01 (no duplication)
+      expect(lineCalls.length).toBe(1);
+
+      const lineData = lineCalls[0][0].data;
+      expect(lineData.externalId).toBe('S-01');
+
+      // Description joined with ' · ' separator
+      expect(lineData.name).toContain(' · ');
+      expect(lineData.name).toContain('Test siding scope #2');
+      expect(lineData.name).toContain('Test siding scope #3');
+
+      // Notes annotation
+      expect(lineData.notes).toContain('Consolidated from 3 scope items');
+
+      // Material cost from the ONE material row in the fixture (100 SF × $5 = $500 = 50_000 cents)
+      // NOT tripled. If the old bug were present, this would be 150_000.
+      expect(lineData.materialCostCents).toBe(50_000);
+
+      // Classification upsert called ONCE per service_code, not per scope_item
+      expect(prisma.classification.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('warns and uses first takeoff when mixed UOMs in same service_code', async () => {
+      const payload = makeValidPayloadJson();
+      // Mix two takeoffs with incompatible UOMs (LF + EA)
+      payload.takeoff_items.push({
+        takeoff_id: 'TK-S01-LF',
+        service_code: 'S-01',
+        description: 'Linear takeoff',
+        quantity: 1500,
+        unit: 'LF',
+        subtotal_role: 'LINE',
+      });
+      payload.takeoff_items.push({
+        takeoff_id: 'TK-S01-EA',
+        service_code: 'S-01',
+        description: 'Count takeoff',
+        quantity: 380,
+        unit: 'EA',
+        subtotal_role: 'LINE',
+      });
+
+      prisma.estimateImport.findFirst.mockResolvedValueOnce(makeImportRow({ rawPayload: payload }));
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await applyImport(prisma as unknown as PrismaClient, makeInput());
+
+      const lineCalls = prisma.estimateLine.create.mock.calls;
+      const s01Line = lineCalls.find((c) => c[0].data.externalId === 'S-01');
+      expect(s01Line).toBeDefined();
+      if (s01Line) {
+        // First takeoff wins (LF, 1500) — NOT 1500 + 380 = 1880
+        expect(s01Line[0].data.quantity).toBe(1500);
+        expect(s01Line[0].data.uom).toBe('LF');
+      }
+      expect(warnSpy).toHaveBeenCalled();
+      const warnArg = warnSpy.mock.calls[0][0];
+      expect(warnArg).toMatch(/mixed UOMs/i);
+
+      warnSpy.mockRestore();
+    });
+  });
+
   describe('displayOrder', () => {
     it('assigns displayOrder in gaps of 10', async () => {
       await applyImport(prisma as unknown as PrismaClient, makeInput());
